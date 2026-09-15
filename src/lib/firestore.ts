@@ -9,7 +9,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db } from "./firebase-client";
+import { db } from "./firebase";
 
 export type ScholarCollection =
   | "tasks"
