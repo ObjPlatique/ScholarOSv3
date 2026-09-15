@@ -7,7 +7,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { auth } from "./firebase-client";
+import { auth } from "./firebase";
 
 const googleProvider = new GoogleAuthProvider();
 
