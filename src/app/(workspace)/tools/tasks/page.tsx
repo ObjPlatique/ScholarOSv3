@@ -1,5 +1,5 @@
-import ModulePage from "@/components/module-page";
+import TasksView from "@/components/tasks-view";
 
 export default function TasksPage() {
-  return <ModulePage eyebrow="Tools" title="Tasks" description="Theo dõi công việc, bài tập và các nhiệm vụ cần hoàn thành." />;
+  return <TasksView />;
 }
