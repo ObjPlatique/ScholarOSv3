@@ -1,11 +1,5 @@
-import ModulePage from "@/components/module-page";
+import DashboardView from "@/components/dashboard-view";
 
 export default function DashboardPage() {
-  return (
-    <ModulePage
-      eyebrow="Tools"
-      title="Dashboard"
-      description="Tổng quan việc học và hoạt động của bạn trong ScholarOS."
-    />
-  );
+  return <DashboardView />;
 }
