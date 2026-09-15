@@ -1,5 +1,5 @@
-import ModulePage from "@/components/module-page";
+import FilesView from "@/components/files-view";
 
 export default function FilesPage() {
-  return <ModulePage eyebrow="Tools" title="Files" description="Quản lý và truy cập tài liệu học tập của bạn." />;
+  return <FilesView />;
 }
