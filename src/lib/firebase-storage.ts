@@ -1,5 +1,5 @@
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { storage } from "./firebase-client";
+import { storage } from "./firebase";
 
 export async function uploadUserFile(uid: string, file: File) {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
