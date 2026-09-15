@@ -35,7 +35,6 @@ export default function Home() {
             <div className="text-2xl font-bold tracking-tight">ScholarOS</div>
             <div className="text-sm text-gray-500">Your study workspace</div>
           </div>
-          <div className="rounded-full bg-gray-100 px-4 py-2 text-sm font-medium text-gray-600">v3 · From Scratch</div>
         </div>
       </header>
 
