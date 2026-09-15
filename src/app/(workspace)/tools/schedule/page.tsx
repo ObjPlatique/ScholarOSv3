@@ -1,5 +1,5 @@
-import ModulePage from "@/components/module-page";
+import ScheduleView from "@/components/schedule-view";
 
 export default function SchedulePage() {
-  return <ModulePage eyebrow="Tools" title="Schedule" description="Quản lý thời khóa biểu và các phiên học." />;
+  return <ScheduleView />;
 }
