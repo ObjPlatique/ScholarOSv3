@@ -9,6 +9,7 @@ import {
   FileText,
   Flame,
   LayoutDashboard,
+  LogOut,
   Menu,
   Settings,
   Sparkles,
@@ -18,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { signOutUser } from "@/lib/firebase-auth";
 
 const groups = [
   {
@@ -86,6 +88,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
+  async function handleSignOut() {
+    try {
+      await signOutUser();
+    } catch (error) {
+      console.error("Failed to sign out", error);
+    }
+  }
+
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-gray-200 bg-white">
       <div className="border-b border-gray-100 px-5 py-5">
@@ -110,6 +120,14 @@ function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
         <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">
           <UserCircle size={19} />
           Profile
+        </button>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 hover:text-red-600"
+        >
+          <LogOut size={19} />
+          Sign out
         </button>
       </div>
     </aside>
