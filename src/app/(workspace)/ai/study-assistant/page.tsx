@@ -14,6 +14,13 @@ const quickPrompts = [
   { label: "Gợi ý cách học", icon: Lightbulb, text: "Gợi ý cách học hiệu quả cho một chủ đề mình đang gặp khó khăn: " },
 ];
 
+function formatAiText(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -44,7 +51,7 @@ export default function StudyAssistantPage() {
       const data = (await response.json()) as { text?: string; error?: string };
       if (!response.ok || !data.text) throw new Error(data.error || "Study Assistant gặp lỗi.");
 
-      setMessages((current) => [...current, { role: "model", text: data.text! }]);
+      setMessages((current) => [...current, { role: "model", text: formatAiText(data.text!) }]);
     } catch (requestError) {
       const messageText = requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI.";
       setError(messageText);
@@ -92,7 +99,13 @@ export default function StudyAssistantPage() {
                 {messages.map((message, index) => (
                   <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                    <div className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 sm:max-w-[78%] ${message.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.text}</div>
+                    <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap bg-indigo-600 text-white" : "bg-gray-100 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>
+                      {message.role === "model" ? (
+                        <div className="whitespace-pre-wrap break-words">{message.text}</div>
+                      ) : (
+                        message.text
+                      )}
+                    </div>
                     {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                   </div>
                 ))}
