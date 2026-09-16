@@ -1,45 +1,44 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, CalendarDays, CheckCircle2, Clock3, Flame, X } from "lucide-react";
+import { Bell, CalendarDays, Check, Clock3, Settings2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { listUserDocuments } from "@/lib/firestore";
 
-type NotificationItem = {
-  id: string;
-  title: string;
-  message: string;
-  href: string;
-  icon: typeof Bell;
-  priority: "high" | "normal";
-};
-
 type Doc = Record<string, unknown> & { id: string };
+type Notice = { id: string; title: string; message: string; href: string; kind: "deadline" | "schedule"; at: number };
+type Settings = { deadline: boolean; schedule: boolean; browser: boolean };
 
-const dateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+const SETTINGS_KEY = "scholaros-notification-settings";
+const READ_KEY = "scholaros-read-notifications";
+const DEFAULTS: Settings = { deadline: true, schedule: true, browser: false };
+const text = (v: unknown) => String(v ?? "");
 
-const todayLabel = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(new Date());
+function parseDate(v: unknown) { const n = new Date(text(v)).getTime(); return Number.isFinite(n) ? n : null; }
+function nextClass(day: number, startTime: string, now = new Date()) {
+  if (!/^\d{1,2}:\d{2}$/.test(startTime)) return null;
+  const [h, m] = startTime.split(":").map(Number);
+  const d = new Date(now);
+  d.setDate(now.getDate() + ((day - now.getDay() + 7) % 7));
+  d.setHours(h, m, 0, 0);
+  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 7);
+  return d.getTime();
+}
 
 export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULTS);
+  const [items, setItems] = useState<Notice[]>([]);
+  const [read, setRead] = useState<string[]>([]);
   const [user, setUser] = useState<User | null>(auth.currentUser);
-  const [items, setItems] = useState<NotificationItem[]>([]);
-  const [readIds, setReadIds] = useState<string[]>([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, setUser);
-    try {
-      setReadIds(JSON.parse(window.localStorage.getItem("scholaros-read-notifications") || "[]"));
-    } catch {
-      setReadIds([]);
-    }
+    try { setSettings({ ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }); } catch {}
+    try { setRead(JSON.parse(localStorage.getItem(READ_KEY) || "[]")); } catch {}
     return unsubscribe;
   }, []);
 
@@ -47,101 +46,73 @@ export default function NotificationCenter() {
     if (!user) return;
     let cancelled = false;
     const load = async () => {
+      const now = Date.now();
       try {
-        const [tasks, schedule, habits] = await Promise.all([
+        const [tasks, schedule] = await Promise.all([
           listUserDocuments<Doc>(user.uid, "tasks"),
           listUserDocuments<Doc>(user.uid, "schedule"),
-          listUserDocuments<Doc>(user.uid, "habits"),
         ]);
-        if (cancelled) return;
-        const today = dateKey();
-        const result: NotificationItem[] = [];
-        const text = (value: unknown) => String(value ?? "");
-
-        tasks.forEach((task) => {
-          const dueDate = text(task.dueDate || task.date);
-          const completed = Boolean(task.completed || task.status === "completed" || task.status === "done");
-          const title = text(task.title) || "Task";
-          if (!completed && dueDate && dueDate < today) {
-            result.push({ id: `overdue-${task.id}`, title: "Task quá hạn", message: `${title} đã quá hạn.`, href: "/tools/tasks", icon: Clock3, priority: "high" });
-          } else if (!completed && dueDate === today) {
-            result.push({ id: `today-${task.id}`, title: "Task đến hạn hôm nay", message: `${title} · ${todayLabel}`, href: "/tools/tasks", icon: CheckCircle2, priority: "high" });
-          }
-        });
-
-        const day = new Date().getDay();
-        schedule.filter((entry) => Number(entry.day) === day).forEach((entry) => {
-          const title = text(entry.title) || text(entry.subject) || "Buổi học";
-          const start = text(entry.startTime);
-          result.push({ id: `schedule-${entry.id}`, title: "Lịch học hôm nay", message: `${title}${start ? ` · ${start}` : ""}`, href: "/tools/schedule", icon: CalendarDays, priority: "normal" });
-        });
-
-        habits.forEach((habit) => {
-          const title = text(habit.title) || text(habit.name) || "Habit";
-          const completedDates = Array.isArray(habit.completedDates) ? habit.completedDates.map(String) : [];
-          if (!completedDates.includes(today) && habit.paused !== true) {
-            result.push({ id: `habit-${habit.id}-${today}`, title: "Habit chưa hoàn thành", message: `${title} · hôm nay`, href: "/tools/habits", icon: Flame, priority: "normal" });
-          }
-        });
-
-        result.sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high"));
-        setItems(result.slice(0, 30));
-      } catch {
-        setItems([]);
-      }
+        const result: Notice[] = [];
+        if (settings.deadline) {
+          const limit = now + 24 * 60 * 60 * 1000;
+          tasks.forEach((task) => {
+            if (task.completed === true || task.status === "completed" || task.status === "done") return;
+            const due = parseDate(task.dueDate) ?? parseDate(task.deadline) ?? parseDate(task.date);
+            if (due !== null && due >= now && due <= limit) {
+              const title = text(task.title) || "Task";
+              result.push({ id: `deadline-${task.id}-${Math.floor(due / 60000)}`, title: "Deadline trong 24 giờ", message: `${title} · ${new Date(due).toLocaleString("vi-VN")}`, href: "/tools/tasks", kind: "deadline", at: due });
+            }
+          });
+        }
+        if (settings.schedule) {
+          const limit = now + 60 * 60 * 1000;
+          schedule.forEach((entry) => {
+            const at = nextClass(Number(entry.day), text(entry.startTime), new Date(now));
+            if (at !== null && at > now && at <= limit) {
+              const title = text(entry.title) || text(entry.subject) || "Buổi học";
+              result.push({ id: `schedule-${entry.id}-${Math.floor(at / 60000)}`, title: "Lịch học trong 1 giờ", message: `${title} · ${text(entry.startTime)}${text(entry.location) ? ` · ${text(entry.location)}` : ""}`, href: "/tools/schedule", kind: "schedule", at });
+            }
+          });
+        }
+        result.sort((a, b) => a.at - b.at);
+        if (!cancelled) setItems(result.slice(0, 30));
+      } catch { if (!cancelled) setItems([]); }
     };
     void load();
-    return () => { cancelled = true; };
-  }, [user]);
+    const timer = window.setInterval(load, 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [user, settings.deadline, settings.schedule]);
 
-  const unread = useMemo(() => items.filter((item) => !readIds.includes(item.id)), [items, readIds]);
+  const unread = useMemo(() => items.filter((item) => !read.includes(item.id)), [items, read]);
+  const save = (next: Settings) => { setSettings(next); localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); };
+  const markRead = (id: string) => { const next = Array.from(new Set([...read, id])).slice(-200); setRead(next); localStorage.setItem(READ_KEY, JSON.stringify(next)); };
+  const markAll = () => { const next = Array.from(new Set([...read, ...items.map((i) => i.id)])).slice(-200); setRead(next); localStorage.setItem(READ_KEY, JSON.stringify(next)); };
 
-  const markRead = (id: string) => {
-    setReadIds((current) => {
-      const next = current.includes(id) ? current : [...current, id].slice(-200);
-      window.localStorage.setItem("scholaros-read-notifications", JSON.stringify(next));
-      return next;
+  const enableBrowser = async () => {
+    if (typeof Notification === "undefined") return;
+    const permission = await Notification.requestPermission();
+    save({ ...settings, browser: permission === "granted" });
+  };
+
+  useEffect(() => {
+    if (!settings.browser || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const now = Date.now();
+    unread.filter((n) => n.at > now && n.at - now <= 60 * 60 * 1000).slice(0, 3).forEach((n) => {
+      const sentKey = `scholaros-sent-${n.id}`;
+      if (localStorage.getItem(sentKey)) return;
+      new Notification(n.title, { body: n.message, tag: n.id });
+      localStorage.setItem(sentKey, "1");
     });
-  };
+  }, [settings.browser, unread]);
 
-  const markAllRead = () => {
-    const next = Array.from(new Set([...readIds, ...items.map((item) => item.id)])).slice(-200);
-    setReadIds(next);
-    window.localStorage.setItem("scholaros-read-notifications", JSON.stringify(next));
-  };
-
-  return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen((value) => !value)} aria-label="Notifications" aria-expanded={open} className="relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]">
-        <Bell size={19} />
-        {unread.length > 0 && <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{unread.length > 9 ? "9+" : unread.length}</span>}
-      </button>
-
-      {open && (
-        <>
-          <button type="button" aria-label="Close notifications" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-2 w-[min(92vw,380px)] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-600 dark:bg-[#404040]">
-            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-600">
-              <div><h3 className="font-bold text-gray-950 dark:text-white">Notifications</h3><p className="text-xs text-gray-500 dark:text-gray-300">{unread.length} chưa đọc</p></div>
-              <div className="flex items-center gap-1">
-                {items.length > 0 && <button type="button" onClick={markAllRead} className="rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-[#555555]">Đọc tất cả</button>}
-                <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#555555]"><X size={17} /></button>
-              </div>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto p-2">
-              {items.length === 0 && <div className="px-4 py-10 text-center"><Bell className="mx-auto mb-3 text-gray-300" size={30} /><p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Không có thông báo</p><p className="mt-1 text-xs text-gray-400">ScholarOS sẽ hiển thị thông báo liên quan đến việc học của bạn.</p></div>}
-              {items.map((item) => {
-                const Icon = item.icon;
-                const isUnread = !readIds.includes(item.id);
-                return <Link key={item.id} href={item.href} onClick={() => { markRead(item.id); setOpen(false); }} className={`flex gap-3 rounded-xl p-3 transition hover:bg-gray-100 dark:hover:bg-[#555555] ${isUnread ? "bg-indigo-50/70 dark:bg-indigo-950/30" : ""}`}>
-                  <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${item.priority === "high" ? "bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300" : "bg-indigo-100 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300"}`}><Icon size={18} /></span>
-                  <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{item.title}</span>{isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-600" />}</span><span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-300">{item.message}</span></span>
-                </Link>;
-              })}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  return <div className="relative">
+    <button type="button" onClick={() => setOpen((v) => !v)} aria-label="Notifications" aria-expanded={open} className="relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]">
+      <Bell size={19} />{unread.length > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{unread.length > 9 ? "9+" : unread.length}</span>}
+    </button>
+    {open && <><button aria-label="Đóng thông báo" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} /><div className="absolute right-0 z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-600 dark:bg-[#404040]" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-600"><div><h3 className="font-bold text-gray-950 dark:text-white">Notifications</h3><p className="text-xs text-gray-500 dark:text-gray-300">{unread.length} chưa đọc</p></div><div className="flex gap-1"><button type="button" onClick={markAll} title="Đọc tất cả" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#555555]"><Check size={17}/></button><button type="button" onClick={() => setSettingsOpen((v) => !v)} title="Cài đặt nhắc nhở" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-[#555555]"><Settings2 size={17}/></button><button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#555555]"><X size={17}/></button></div></div>
+      {settingsOpen && <div className="border-b border-gray-200 p-3 dark:border-slate-600"><p className="mb-2 text-xs font-bold uppercase text-gray-500 dark:text-gray-300">Tùy chọn nhắc</p><label className="flex items-center justify-between py-2 text-sm text-gray-800 dark:text-white"><span>Deadline trong 24 giờ</span><input type="checkbox" checked={settings.deadline} onChange={(e) => save({ ...settings, deadline: e.target.checked })}/></label><label className="flex items-center justify-between py-2 text-sm text-gray-800 dark:text-white"><span>Lịch học trong 1 giờ</span><input type="checkbox" checked={settings.schedule} onChange={(e) => save({ ...settings, schedule: e.target.checked })}/></label><button type="button" onClick={enableBrowser} className="mt-2 w-full rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">{settings.browser ? "Đã bật thông báo trình duyệt" : "Bật thông báo khi rời trang"}</button><p className="mt-2 text-[11px] text-gray-500 dark:text-gray-300">Cài đặt này xin quyền thông báo của trình duyệt.</p></div>}
+      <div className="max-h-[55vh] overflow-y-auto p-2">{items.length === 0 ? <div className="px-4 py-10 text-center"><Bell className="mx-auto mb-3 text-gray-300" size={30}/><p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Không có thông báo</p><p className="mt-1 text-xs text-gray-400">ScholarOS chỉ báo deadline trong 24h và lịch học trong 1h.</p></div> : items.map((item) => { const Icon = item.kind === "deadline" ? Clock3 : CalendarDays; const isUnread = !read.includes(item.id); return <Link key={item.id} href={item.href} onClick={() => { markRead(item.id); setOpen(false); }} className={`flex gap-3 rounded-xl p-3 transition hover:bg-gray-100 dark:hover:bg-[#555555] ${isUnread ? "bg-indigo-50/70 dark:bg-indigo-950/30" : "opacity-60"}`}><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300"><Icon size={18}/></span><span className="min-w-0"><span className="block text-sm font-semibold text-gray-900 dark:text-white">{item.title}</span><span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-300">{item.message}</span></span></Link>; })}</div>
+    </div></>}
+  </div>;
 }
