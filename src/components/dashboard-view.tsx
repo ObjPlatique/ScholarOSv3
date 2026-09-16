@@ -4,10 +4,27 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { listUserDocuments } from "@/lib/firestore";
 
 type ProgressItem = {
   label: string;
   value: number;
+};
+
+type Task = {
+  id: string;
+  title?: string;
+  dueDate?: string;
+  completed?: boolean;
+};
+
+type ScheduleItem = {
+  id: string;
+  title: string;
+  subject: string;
+  day: number;
+  startTime: string;
+  endTime: string;
 };
 
 const toolLinks = [
@@ -88,6 +105,10 @@ function Calendar({ now }: { now: Date }) {
 export default function DashboardView() {
   const [now, setNow] = useState(() => new Date());
   const [user, setUser] = useState<User | null>(auth.currentUser);
+  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
+  const [todaySchedule, setTodaySchedule] = useState<ScheduleItem[]>([]);
+  const [focusLoading, setFocusLoading] = useState(true);
+  const [focusError, setFocusError] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -97,6 +118,41 @@ export default function DashboardView() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setTodayTasks([]);
+      setTodaySchedule([]);
+      setFocusLoading(false);
+      return;
+    }
+
+    const loadFocus = async () => {
+      setFocusLoading(true);
+      setFocusError("");
+      try {
+        const [tasks, schedule] = await Promise.all([
+          listUserDocuments<Task>(user.uid, "tasks"),
+          listUserDocuments<ScheduleItem>(user.uid, "schedule"),
+        ]);
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const todayDay = now.getDay();
+
+        setTodayTasks(tasks.filter((task) => task.dueDate === today && !task.completed));
+        setTodaySchedule(
+          schedule
+            .filter((item) => item.day === todayDay)
+            .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+        );
+      } catch {
+        setFocusError("Không thể đồng bộ dữ liệu Today's Focus. Bạn vẫn có thể mở Tasks hoặc Schedule để kiểm tra.");
+      } finally {
+        setFocusLoading(false);
+      }
+    };
+
+    void loadFocus();
+  }, [user, now.getDate(), now.getMonth(), now.getFullYear()]);
 
   const progress = useMemo(() => getProgress(now), [now]);
   const greetingName = user?.displayName?.split(" ")[0] || "bạn";
@@ -173,15 +229,59 @@ export default function DashboardView() {
         </div>
 
         <section className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-5">
             <div>
               <p className="text-sm font-bold uppercase tracking-wider text-indigo-600">Today's Focus</p>
-              <h2 className="mt-1 text-xl font-bold text-slate-950">Chưa có nhiệm vụ hôm nay</h2>
-              <p className="mt-1 max-w-2xl text-sm text-slate-500">Tasks và Schedule sẽ cung cấp dữ liệu cho khu vực này khi các module đó được xây dựng.</p>
+              <h2 className="mt-1 text-xl font-bold text-slate-950">Việc cần tập trung hôm nay</h2>
+              <p className="mt-1 text-sm text-slate-500">Dữ liệu được lấy trực tiếp từ Tasks và Schedule.</p>
             </div>
-            <Link href="/tools/tasks" className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-700">
-              Mở Tasks
-            </Link>
+
+            {focusError && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{focusError}</div>}
+
+            {focusLoading ? (
+              <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">Đang đồng bộ Tasks và Schedule...</div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Tasks</p>
+                      <p className="mt-1 font-bold text-slate-950">{todayTasks.length ? `${todayTasks.length} nhiệm vụ hôm nay` : "Không có nhiệm vụ hôm nay"}</p>
+                    </div>
+                    <Link href="/tools/tasks" className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-indigo-600 ring-1 ring-slate-200 hover:bg-indigo-50">Mở Tasks</Link>
+                  </div>
+                  {todayTasks.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {todayTasks.slice(0, 4).map((task) => (
+                        <div key={task.id} className="rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-700">{task.title || "Nhiệm vụ chưa đặt tên"}</div>
+                      ))}
+                      {todayTasks.length > 4 && <p className="text-xs text-slate-500">+ {todayTasks.length - 4} nhiệm vụ khác</p>}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Schedule</p>
+                      <p className="mt-1 font-bold text-slate-950">{todaySchedule.length ? `${todaySchedule.length} buổi học hôm nay` : "Không có lịch học hôm nay"}</p>
+                    </div>
+                    <Link href="/tools/schedule" className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-indigo-600 ring-1 ring-slate-200 hover:bg-indigo-50">Mở Schedule</Link>
+                  </div>
+                  {todaySchedule.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {todaySchedule.slice(0, 4).map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2.5 text-sm">
+                          <span className="min-w-0 truncate font-semibold text-slate-700">{item.title}</span>
+                          <span className="shrink-0 font-mono text-xs font-bold text-indigo-600">{item.startTime}–{item.endTime}</span>
+                        </div>
+                      ))}
+                      {todaySchedule.length > 4 && <p className="text-xs text-slate-500">+ {todaySchedule.length - 4} buổi khác</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
