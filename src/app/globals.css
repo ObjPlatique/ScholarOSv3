@@ -3,10 +3,40 @@
 
 :root { --background: #f7f8fc; --foreground: #182033; --muted: #667085; --border: #e5e7eb; --primary: #4f46e5; }
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
-body { background: var(--background); color: var(--foreground); font-family: "Be Vietnam Pro", system-ui, sans-serif; font-size: 16px; }
-button, input, textarea, select { font: inherit; }
-button { cursor: pointer; }
+html, body { margin: 0; min-height: 100%; max-width: 100%; }
+html { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+body { background: var(--background); color: var(--foreground); font-family: "Be Vietnam Pro", system-ui, sans-serif; font-size: 16px; overflow-x: hidden; }
+button, input, textarea, select { font: inherit; max-width: 100%; }
+button { cursor: pointer; touch-action: manipulation; }
+img, svg, video, canvas { max-width: 100%; }
+img, video { height: auto; }
+
+/* Responsive foundation */
+main, section, article, aside, nav, header, footer, form, fieldset { min-width: 0; }
+.flex > *, .grid > * { min-width: 0; }
+input, textarea, select { min-width: 0; }
+textarea { overflow-wrap: anywhere; }
+
+/* Keep wide data/content usable on narrow screens instead of forcing page overflow. */
+table { max-width: 100%; }
+pre, code { max-width: 100%; overflow-x: auto; }
+
+/* Comfortable mobile touch targets and safe-area support. */
+@media (max-width: 767px) {
+  body { font-size: 15px; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+  button:not([aria-hidden="true"]),
+  [role="button"] { min-height: 40px; }
+}
+
+@media (max-width: 480px) {
+  h1 { overflow-wrap: anywhere; }
+  input, textarea, select { font-size: 16px; }
+}
+
+@media (orientation: landscape) and (max-height: 560px) and (max-width: 900px) {
+  .fixed.inset-0 { overflow-y: auto; }
+}
 
 /* ScholarOS dark mode: neutral gray background + white text. Accent/action buttons keep their existing colors. */
 html.dark,
