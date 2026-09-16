@@ -24,6 +24,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { listUserDocuments } from "@/lib/firestore";
 import { signOutUser } from "@/lib/firebase-auth";
+import NotificationCenter from "@/components/notification-center";
 
 const groups = [
   {
@@ -140,115 +141,29 @@ function GlobalSearch({ mobile = false }: { mobile?: boolean }) {
     return all.filter((item) => `${item.title} ${item.subtitle} ${item.type}`.toLowerCase().includes(normalized)).slice(0, 12);
   }, [query, navigationResults, documents]);
 
-  const openSearch = () => setOpen(true);
-
   return (
     <>
-      <button
-        type="button"
-        onClick={openSearch}
-        aria-label="Tìm kiếm toàn bộ ScholarOS"
-        className={mobile
-          ? "flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]"
-          : "flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm font-medium text-gray-500 transition hover:border-indigo-300 hover:bg-white hover:text-gray-700 dark:border-slate-600 dark:bg-[#333333] dark:text-gray-300 dark:hover:bg-[#555555]"}
-      >
+      <button type="button" onClick={() => setOpen(true)} aria-label="Tìm kiếm toàn bộ ScholarOS" className={mobile ? "flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]" : "flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm font-medium text-gray-500 transition hover:border-indigo-300 hover:bg-white hover:text-gray-700 dark:border-slate-600 dark:bg-[#333333] dark:text-gray-300 dark:hover:bg-[#555555]"}>
         <Search size={18} />
         {!mobile && <><span className="flex-1">Tìm kiếm...</span><kbd className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-bold dark:border-slate-600 dark:bg-[#444444]">Ctrl K</kbd></>}
       </button>
-
-      {open && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-gray-950/40 px-4 pt-[10vh] backdrop-blur-sm" onMouseDown={() => setOpen(false)}>
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-600 dark:bg-[#404040]" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-center gap-3 border-b border-gray-200 px-4 dark:border-slate-600">
-              <Search size={20} className="shrink-0 text-gray-400" />
-              <input
-                autoFocus
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Tìm Tasks, Schedule, Habits, Notes hoặc chức năng..."
-                className="h-14 flex-1 bg-transparent text-base text-gray-950 outline-none placeholder:text-gray-400 dark:text-white"
-              />
-              <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#555555]"><X size={18} /></button>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto p-2">
-              {loading && <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-300">Đang tìm kiếm dữ liệu...</div>}
-              {!loading && results.length === 0 && <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-300">Không tìm thấy kết quả phù hợp.</div>}
-              {!loading && results.map((result) => {
-                const Icon = result.icon;
-                return (
-                  <Link key={result.id} href={result.href} onClick={() => setOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-indigo-50 dark:hover:bg-[#555555]">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300"><Icon size={18} /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-gray-900 dark:text-white">{result.title}</span>
-                      <span className="block truncate text-xs text-gray-500 dark:text-gray-300">{result.type} · {result.subtitle}</span>
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3 text-[11px] text-gray-400 dark:border-slate-600">
-              <span>Enter để mở kết quả</span><span>Esc để đóng</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {open && <div className="fixed inset-0 z-[100] flex items-start justify-center bg-gray-950/40 px-4 pt-[10vh] backdrop-blur-sm" onMouseDown={() => setOpen(false)}><div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-600 dark:bg-[#404040]" onMouseDown={(event) => event.stopPropagation()}><div className="flex items-center gap-3 border-b border-gray-200 px-4 dark:border-slate-600"><Search size={20} className="shrink-0 text-gray-400" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm Tasks, Schedule, Habits, Notes hoặc chức năng..." className="h-14 flex-1 bg-transparent text-base text-gray-950 outline-none placeholder:text-gray-400 dark:text-white" /><button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-[#555555]"><X size={18} /></button></div><div className="max-h-[60vh] overflow-y-auto p-2">{loading && <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-300">Đang tìm kiếm dữ liệu...</div>}{!loading && results.length === 0 && <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-300">Không tìm thấy kết quả phù hợp.</div>}{!loading && results.map((result) => { const Icon = result.icon; return <Link key={result.id} href={result.href} onClick={() => setOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-indigo-50 dark:hover:bg-[#555555]"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300"><Icon size={18} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-gray-900 dark:text-white">{result.title}</span><span className="block truncate text-xs text-gray-500 dark:text-gray-300">{result.type} · {result.subtitle}</span></span></Link>; })}</div><div className="flex items-center justify-between border-t border-gray-200 px-4 py-3 text-[11px] text-gray-400 dark:border-slate-600"><span>Enter để mở kết quả</span><span>Esc để đóng</span></div></div></div>}
     </>
   );
 }
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-
-  return (
-    <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="ScholarOS navigation">
-      <div className="mb-4 px-1"><GlobalSearch /></div>
-      {groups.map((group) => {
-        const GroupIcon = group.icon;
-        return (
-          <div key={group.title} className="mb-6">
-            <div className="mb-2 flex items-center gap-2 px-3 text-xs font-bold uppercase tracking-wider text-gray-400"><GroupIcon size={15} />{group.title}</div>
-            <div className="space-y-1">
-              {group.items.map(([label, href, Icon]) => {
-                const active = pathname === href;
-                return <Link key={href} href={href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 hover:text-gray-950 dark:text-gray-200 dark:hover:bg-[#555555] dark:hover:text-white"}`}><Icon size={19} /><span>{label}</span></Link>;
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </nav>
-  );
+  return <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="ScholarOS navigation"><div className="mb-4 px-1"><GlobalSearch /></div>{groups.map((group) => { const GroupIcon = group.icon; return <div key={group.title} className="mb-6"><div className="mb-2 flex items-center gap-2 px-3 text-xs font-bold uppercase tracking-wider text-gray-400"><GroupIcon size={15} />{group.title}</div><div className="space-y-1">{group.items.map(([label, href, Icon]) => { const active = pathname === href; return <Link key={href} href={href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 hover:text-gray-950 dark:text-gray-200 dark:hover:bg-[#555555] dark:hover:text-white"}`}><Icon size={19} /><span>{label}</span></Link>; })}</div></div>; })}</nav>;
 }
 
 function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   async function handleSignOut() { try { await signOutUser(); } catch (error) { console.error("Failed to sign out", error); } }
-  return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-gray-200 bg-white dark:border-slate-700 dark:bg-[#404040]">
-      <div className="border-b border-gray-100 px-5 py-5 dark:border-slate-700"><Link href="/dashboard" onClick={onNavigate} className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles size={21} strokeWidth={2.4} /></div><div><div className="text-xl font-bold tracking-tight text-gray-950 dark:text-white">ScholarOS</div><div className="text-xs text-gray-500 dark:text-gray-300">Your study workspace</div></div></Link></div>
-      <Navigation onNavigate={onNavigate} />
-      <div className="border-t border-gray-100 p-3 dark:border-slate-700">
-        <Link href="/settings" onClick={onNavigate} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"><Settings size={19} />Settings</Link>
-        <Link href="/profile" onClick={onNavigate} aria-current={pathname === "/profile" ? "page" : undefined} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${pathname === "/profile" ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"}`}><UserCircle size={19} />Profile</Link>
-        <button type="button" onClick={handleSignOut} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 hover:text-red-600 dark:text-gray-200 dark:hover:bg-[#555555] dark:hover:text-red-400"><LogOut size={19} />Sign out</button>
-      </div>
-    </aside>
-  );
+  return <aside className="flex h-full w-72 shrink-0 flex-col border-r border-gray-200 bg-white dark:border-slate-700 dark:bg-[#404040]"><div className="border-b border-gray-100 px-5 py-5 dark:border-slate-700"><Link href="/dashboard" onClick={onNavigate} className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles size={21} strokeWidth={2.4} /></div><div><div className="text-xl font-bold tracking-tight text-gray-950 dark:text-white">ScholarOS</div><div className="text-xs text-gray-500 dark:text-gray-300">Your study workspace</div></div></Link></div><Navigation onNavigate={onNavigate} /><div className="border-t border-gray-100 p-3 dark:border-slate-700"><div className="mb-1 flex items-center justify-between rounded-xl px-2 py-1"><span className="text-xs font-bold uppercase tracking-wider text-gray-400">Notifications</span><NotificationCenter /></div><Link href="/settings" onClick={onNavigate} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"><Settings size={19} />Settings</Link><Link href="/profile" onClick={onNavigate} aria-current={pathname === "/profile" ? "page" : undefined} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${pathname === "/profile" ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"}`}><UserCircle size={19} />Profile</Link><button type="button" onClick={handleSignOut} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 hover:text-red-600 dark:text-gray-200 dark:hover:bg-[#555555] dark:hover:text-red-400"><LogOut size={19} />Sign out</button></div></aside>;
 }
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
-  return (
-    <>
-      <div className="hidden min-h-screen md:block"><div className="sticky top-0 h-screen"><SidebarPanel /></div></div>
-      <div className="md:hidden">
-        <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur dark:border-slate-700 dark:bg-[#404040]/95">
-          <Link href="/dashboard" className="flex items-center gap-2.5"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white"><Sparkles size={19} /></div><span className="text-lg font-bold text-gray-950 dark:text-white">ScholarOS</span></Link>
-          <div className="flex items-center gap-1"><GlobalSearch mobile /><button type="button" aria-label={open ? "Close navigation" : "Open navigation"} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]">{open ? <X size={22} /> : <Menu size={22} />}</button></div>
-        </header>
-        <div className="h-16" aria-hidden="true" />
-        {open && <div className="fixed inset-0 z-50 flex"><button type="button" aria-label="Close navigation" className="flex-1 bg-gray-950/20" onClick={() => setOpen(false)} /><div className="h-full w-[min(88vw,320px)] shadow-xl"><SidebarPanel onNavigate={() => setOpen(false)} /></div></div>}
-      </div>
-    </>
-  );
+  return <><div className="hidden min-h-screen md:block"><div className="sticky top-0 h-screen"><SidebarPanel /></div></div><div className="md:hidden"><header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur dark:border-slate-700 dark:bg-[#404040]/95"><Link href="/dashboard" className="flex items-center gap-2.5"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white"><Sparkles size={19} /></div><span className="text-lg font-bold text-gray-950 dark:text-white">ScholarOS</span></Link><div className="flex items-center gap-1"><NotificationCenter /><GlobalSearch mobile /><button type="button" aria-label={open ? "Close navigation" : "Open navigation"} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]">{open ? <X size={22} /> : <Menu size={22} />}</button></div></header><div className="h-16" aria-hidden="true" />{open && <div className="fixed inset-0 z-50 flex"><button type="button" aria-label="Close navigation" className="flex-1 bg-gray-950/20" onClick={() => setOpen(false)} /><div className="h-full w-[min(88vw,320px)] shadow-xl"><SidebarPanel onNavigate={() => setOpen(false)} /></div></div>}</div></>;
 }
