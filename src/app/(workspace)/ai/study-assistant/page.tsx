@@ -15,10 +15,104 @@ const quickPrompts = [
 ];
 
 function formatAiText(text: string) {
-  return text
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function renderInlineMarkdown(text: string) {
+  const normalized = text
+    .replace(/\$\\rightarrow\$/g, "→")
+    .replace(/\$\\to\$/g, "→")
+    .replace(/\$\\Rightarrow\$/g, "⇒")
+    .replace(/\$\\leq\$/g, "≤")
+    .replace(/\$\\geq\$/g, "≥")
+    .replace(/\$\\times\$/g, "×")
+    .replace(/\$\\cdot\$/g, "·")
+    .replace(/\$([^$]+)\$/g, "$1");
+
+  const parts = normalized.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/10">{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <em key={index}>{part.slice(1, -1)}</em>;
+    }
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function MarkdownRenderer({ text }: { text: string }) {
+  const lines = formatAiText(text).split("\n");
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+  let orderedItems: string[] = [];
+
+  const flushLists = () => {
+    if (listItems.length) {
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} className="my-2 list-disc space-y-1.5 pl-5">
+          {listItems.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>)}
+        </ul>,
+      );
+      listItems = [];
+    }
+    if (orderedItems.length) {
+      blocks.push(
+        <ol key={`ol-${blocks.length}`} className="my-2 list-decimal space-y-1.5 pl-5">
+          {orderedItems.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>)}
+        </ol>,
+      );
+      orderedItems = [];
+    }
+  };
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushLists();
+      return;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      if (orderedItems.length) flushLists();
+      listItems.push(unordered[1]);
+      return;
+    }
+
+    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      if (listItems.length) flushLists();
+      orderedItems.push(ordered[1]);
+      return;
+    }
+
+    flushLists();
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const HeadingTag = level === 1 ? "h2" : level === 2 ? "h3" : "h4";
+      blocks.push(
+        <HeadingTag key={`heading-${index}`} className={`${level === 1 ? "mt-4 text-lg" : level === 2 ? "mt-3 text-base" : "mt-2 text-sm"} font-bold leading-7 text-gray-950 dark:text-white`}>
+          {renderInlineMarkdown(heading[2])}
+        </HeadingTag>,
+      );
+      return;
+    }
+
+    blocks.push(
+      <p key={`p-${index}`} className="my-1.5 leading-7">
+        {renderInlineMarkdown(trimmed)}
+      </p>,
+    );
+  });
+
+  flushLists();
+  return <div className="break-words">{blocks}</div>;
 }
 
 export default function StudyAssistantPage() {
@@ -47,10 +141,8 @@ export default function StudyAssistantPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history: previousMessages }),
       });
-
       const data = (await response.json()) as { text?: string; error?: string };
       if (!response.ok || !data.text) throw new Error(data.error || "Study Assistant gặp lỗi.");
-
       setMessages((current) => [...current, { role: "model", text: formatAiText(data.text!) }]);
     } catch (requestError) {
       const messageText = requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI.";
@@ -59,10 +151,6 @@ export default function StudyAssistantPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function useQuickPrompt(text: string) {
-    setInput(text);
   }
 
   return (
@@ -88,7 +176,7 @@ export default function StudyAssistantPage() {
                 <p className="mt-2 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-300">Đặt câu hỏi về bài học, gửi đề bài hoặc yêu cầu giải thích một khái niệm.</p>
                 <div className="mt-6 grid w-full max-w-2xl gap-3 sm:grid-cols-3">
                   {quickPrompts.map(({ label, icon: Icon, text }) => (
-                    <button key={label} type="button" onClick={() => useQuickPrompt(text)} className="flex min-h-12 items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 text-left text-sm font-semibold text-gray-700 transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-gray-100 dark:hover:border-indigo-400 dark:hover:bg-indigo-500/10">
+                    <button key={label} type="button" onClick={() => setInput(text)} className="flex min-h-12 items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 text-left text-sm font-semibold text-gray-700 transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-gray-100 dark:hover:border-indigo-400 dark:hover:bg-indigo-500/10">
                       <Icon className="shrink-0 text-indigo-500" size={19} /><span>{label}</span>
                     </button>
                   ))}
@@ -99,12 +187,8 @@ export default function StudyAssistantPage() {
                 {messages.map((message, index) => (
                   <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                    <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap bg-indigo-600 text-white" : "bg-gray-100 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>
-                      {message.role === "model" ? (
-                        <div className="whitespace-pre-wrap break-words">{message.text}</div>
-                      ) : (
-                        message.text
-                      )}
+                    <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>
+                      {message.role === "model" ? <MarkdownRenderer text={message.text} /> : message.text}
                     </div>
                     {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                   </div>
