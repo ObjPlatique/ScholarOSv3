@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
 const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS, một trợ lý học tập thân thiện và chính xác.
 - Trả lời bằng tiếng Việt nếu người dùng viết tiếng Việt; giữ nguyên ngôn ngữ nếu người dùng dùng ngôn ngữ khác.
@@ -10,6 +10,8 @@ const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS, một tr�
 - Không bịa dữ kiện. Nếu đề bài thiếu thông tin, nói rõ phần còn thiếu.
 - Dùng Markdown ngắn gọn, dễ đọc trên điện thoại.
 - Không tự nhận mình là giáo viên hay con người.`;
+
+type HistoryItem = { role: "user" | "model"; text: string };
 
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -32,43 +34,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Vui lòng nhập câu hỏi." }, { status: 400 });
     }
 
-    const history = Array.isArray(body.history)
+    const history: HistoryItem[] = Array.isArray(body.history)
       ? body.history
           .filter(
-            (item): item is { role: "user" | "model"; text: string } =>
+            (item): item is HistoryItem =>
               !!item &&
               typeof item === "object" &&
-              ((item as { role?: unknown }).role === "user" ||
+              (((item as { role?: unknown }).role === "user") ||
                 (item as { role?: unknown }).role === "model") &&
               typeof (item as { text?: unknown }).text === "string",
           )
           .slice(-12)
       : [];
 
-    const contents = [
-      ...history.map((item) => ({
-        role: item.role,
-        parts: [{ text: item.text }],
-      })),
-      { role: "user", parts: [{ text: message }] },
-    ];
+    const conversation = history
+      .map((item) => `${item.role === "user" ? "Người dùng" : "Study Assistant"}: ${item.text}`)
+      .join("\n\n");
+
+    const input = conversation
+      ? `${conversation}\n\nNgười dùng: ${message}`
+      : message;
 
     const response = await fetch(`${API_URL}?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-        contents,
-        generationConfig: {
-          temperature: 0.35,
-          maxOutputTokens: 2048,
-        },
+        model: MODEL,
+        input,
+        system_instruction: SYSTEM_INSTRUCTION,
       }),
       cache: "no-store",
     });
 
     const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      outputs?: Array<{ type?: string; text?: string }>;
+      output?: Array<{ type?: string; text?: string }>;
       error?: { message?: string };
     };
 
@@ -79,8 +79,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const text = data.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text || "")
+    const outputs = data.outputs ?? data.output ?? [];
+    const text = outputs
+      .filter((item) => item.type === "text" && typeof item.text === "string")
+      .map((item) => item.text || "")
       .join("")
       .trim();
 
