@@ -113,10 +113,14 @@ function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
       <Navigation onNavigate={onNavigate} />
 
       <div className="border-t border-gray-100 p-3">
-        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100"
+        >
           <Settings size={19} />
           Settings
-        </button>
+        </Link>
         <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">
           <UserCircle size={19} />
           Profile
