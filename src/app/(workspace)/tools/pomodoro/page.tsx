@@ -12,7 +12,7 @@ type Mode = keyof typeof MODES;
 
 export default function PomodoroPage() {
   const [mode, setMode] = useState<Mode>("focus");
-  const [minutes, setMinutes] = useState(MODES.focus.defaultMinutes);
+  const [minutes, setMinutes] = useState<number>(MODES.focus.defaultMinutes);
   const [secondsLeft, setSecondsLeft] = useState(MODES.focus.defaultMinutes * 60);
   const [running, setRunning] = useState(false);
   const [completed, setCompleted] = useState(0);
