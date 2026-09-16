@@ -3,20 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 
 const MODES = {
-  focus: { label: "Tập trung", minutes: 25 },
-  shortBreak: { label: "Nghỉ ngắn", minutes: 5 },
-  longBreak: { label: "Nghỉ dài", minutes: 15 },
+  focus: { label: "Tập trung", defaultMinutes: 25 },
+  shortBreak: { label: "Nghỉ ngắn", defaultMinutes: 5 },
+  longBreak: { label: "Nghỉ dài", defaultMinutes: 15 },
 } as const;
 
 type Mode = keyof typeof MODES;
 
 export default function PomodoroPage() {
   const [mode, setMode] = useState<Mode>("focus");
-  const [secondsLeft, setSecondsLeft] = useState(MODES.focus.minutes * 60);
+  const [minutes, setMinutes] = useState(MODES.focus.defaultMinutes);
+  const [secondsLeft, setSecondsLeft] = useState(MODES.focus.defaultMinutes * 60);
   const [running, setRunning] = useState(false);
   const [completed, setCompleted] = useState(0);
 
-  const totalSeconds = MODES[mode].minutes * 60;
+  const totalSeconds = minutes * 60;
   const progress = Math.min(100, Math.max(0, ((totalSeconds - secondsLeft) / totalSeconds) * 100));
 
   useEffect(() => {
@@ -37,20 +38,28 @@ export default function PomodoroPage() {
   }, [running, mode]);
 
   const time = useMemo(() => {
-    const minutes = Math.floor(secondsLeft / 60).toString().padStart(2, "0");
-    const seconds = (secondsLeft % 60).toString().padStart(2, "0");
-    return `${minutes}:${seconds}`;
+    const mins = Math.floor(secondsLeft / 60).toString().padStart(2, "0");
+    const secs = (secondsLeft % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
   }, [secondsLeft]);
 
   const changeMode = (nextMode: Mode) => {
     setMode(nextMode);
     setRunning(false);
-    setSecondsLeft(MODES[nextMode].minutes * 60);
+    setMinutes(MODES[nextMode].defaultMinutes);
+    setSecondsLeft(MODES[nextMode].defaultMinutes * 60);
+  };
+
+  const updateMinutes = (value: number) => {
+    const next = Math.min(180, Math.max(1, value || 1));
+    setMinutes(next);
+    setRunning(false);
+    setSecondsLeft(next * 60);
   };
 
   const reset = () => {
     setRunning(false);
-    setSecondsLeft(MODES[mode].minutes * 60);
+    setSecondsLeft(minutes * 60);
   };
 
   return (
@@ -59,7 +68,7 @@ export default function PomodoroPage() {
         <div className="mb-8">
           <div className="text-sm font-bold uppercase tracking-wider text-indigo-600">Tools</div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-950 sm:text-4xl">Pomodoro</h1>
-          <p className="mt-2 max-w-2xl text-gray-600">Đồng hồ Pomodoro giúp bạn tập trung theo từng phiên học và nghỉ.</p>
+          <p className="mt-2 max-w-2xl text-gray-600">Tùy chỉnh thời gian tập trung và nghỉ theo cách học của bạn.</p>
         </div>
 
         <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-8">
@@ -105,14 +114,33 @@ export default function PomodoroPage() {
             </div>
           </div>
 
+          <div className="mx-auto mt-8 max-w-md rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <label htmlFor="pomodoro-minutes" className="block text-sm font-semibold text-gray-800">
+              Thời gian {MODES[mode].label.toLowerCase()}
+            </label>
+            <div className="mt-3 flex items-center gap-3">
+              <input
+                id="pomodoro-minutes"
+                type="number"
+                min={1}
+                max={180}
+                value={minutes}
+                onChange={(event) => updateMinutes(Number(event.target.value))}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-lg font-semibold text-gray-950 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+              <span className="font-medium text-gray-500">phút</span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Có thể đặt từ 1 đến 180 phút.</p>
+          </div>
+
           <div className="mt-10 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl bg-gray-50 p-4 text-center">
               <div className="text-2xl font-bold text-gray-950">{completed}</div>
               <div className="mt-1 text-sm text-gray-500">Phiên tập trung hoàn thành</div>
             </div>
             <div className="rounded-2xl bg-gray-50 p-4 text-center">
-              <div className="text-2xl font-bold text-gray-950">{MODES.focus.minutes} phút</div>
-              <div className="mt-1 text-sm text-gray-500">Thời gian tập trung</div>
+              <div className="text-2xl font-bold text-gray-950">{minutes} phút</div>
+              <div className="mt-1 text-sm text-gray-500">Thời lượng hiện tại</div>
             </div>
             <div className="rounded-2xl bg-gray-50 p-4 text-center">
               <div className="text-2xl font-bold text-gray-950">{Math.round(progress)}%</div>
