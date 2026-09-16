@@ -121,10 +121,19 @@ function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
           <Settings size={19} />
           Settings
         </Link>
-        <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">
+        <Link
+          href="/profile"
+          onClick={onNavigate}
+          aria-current={usePathname() === "/profile" ? "page" : undefined}
+          className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+            usePathname() === "/profile"
+              ? "bg-indigo-50 text-indigo-700"
+              : "text-gray-700 hover:bg-gray-100"
+          }`}
+        >
           <UserCircle size={19} />
           Profile
-        </button>
+        </Link>
         <button
           type="button"
           onClick={handleSignOut}
