@@ -159,7 +159,7 @@ export default function Sidebar() {
       </div>
 
       <div className="md:hidden">
-        <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur">
+        <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur">
           <Link href="/dashboard" className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
               <Sparkles size={19} />
@@ -176,6 +176,8 @@ export default function Sidebar() {
             {open ? <X size={22} /> : <Menu size={22} />}
           </button>
         </header>
+
+        <div className="h-16" aria-hidden="true" />
 
         {open && (
           <div className="fixed inset-0 z-50 flex">
