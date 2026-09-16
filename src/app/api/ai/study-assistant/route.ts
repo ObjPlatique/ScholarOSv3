@@ -13,6 +13,18 @@ const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS, một tr�
 
 type HistoryItem = { role: "user" | "model"; text: string };
 
+type InteractionResponse = {
+  status?: string;
+  steps?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+  error?: { message?: string };
+};
+
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -55,9 +67,12 @@ export async function POST(request: Request) {
       ? `${conversation}\n\nNgười dùng: ${message}`
       : message;
 
-    const response = await fetch(`${API_URL}?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify({
         model: MODEL,
         input,
@@ -66,11 +81,7 @@ export async function POST(request: Request) {
       cache: "no-store",
     });
 
-    const data = (await response.json()) as {
-      outputs?: Array<{ type?: string; text?: string }>;
-      output?: Array<{ type?: string; text?: string }>;
-      error?: { message?: string };
-    };
+    const data = (await response.json()) as InteractionResponse;
 
     if (!response.ok) {
       return NextResponse.json(
@@ -79,15 +90,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const outputs = data.outputs ?? data.output ?? [];
-    const text = outputs
+    // Interactions API returns model text under steps[].content[].text.
+    const text = data.steps
+      ?.filter((step) => step.type === "model_output")
+      .flatMap((step) => step.content ?? [])
       .filter((item) => item.type === "text" && typeof item.text === "string")
       .map((item) => item.text || "")
       .join("")
       .trim();
 
     if (!text) {
-      return NextResponse.json({ error: "AI không trả về nội dung." }, { status: 502 });
+      return NextResponse.json(
+        {
+          error:
+            data.status && data.status !== "completed"
+              ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).`
+              : "AI không trả về nội dung.",
+        },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({ text });
