@@ -126,7 +126,9 @@ export default function Sidebar() {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   useEffect(() => {
     document.documentElement.style.setProperty("--scholar-sidebar-width", desktopCollapsed ? "76px" : "288px");
-    return () => document.documentElement.style.removeProperty("--scholar-sidebar-width");
+    return () => {
+      document.documentElement.style.removeProperty("--scholar-sidebar-width");
+    };
   }, [desktopCollapsed]);
   return (
     <>
