@@ -5,9 +5,9 @@ import AuthGate from "@/components/auth-gate";
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   return (
     <AuthGate>
-      <div className="min-h-screen w-full overflow-x-hidden md:block">
+      <div className="w-full overflow-x-hidden">
         <Sidebar />
-        <div className="min-h-screen min-w-0 max-w-full overflow-x-hidden md:ml-72">
+        <div className="min-w-0 max-w-full overflow-x-hidden md:ml-72">
           {children}
         </div>
       </div>
