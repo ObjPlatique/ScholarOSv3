@@ -97,18 +97,22 @@ function Navigation({ onNavigate, collapsed = false }: { onNavigate?: () => void
   );
 }
 
-function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarPanel({ onNavigate, onCollapsedChange }: { onNavigate?: () => void; onCollapsedChange?: (collapsed: boolean) => void }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => { const saved = window.localStorage.getItem("scholaros-sidebar-collapsed"); if (saved === "true") setCollapsed(true); }, []);
-  const toggle = () => setCollapsed((value) => { const next = !value; window.localStorage.setItem("scholaros-sidebar-collapsed", String(next)); return next; });
+  useEffect(() => { const saved = window.localStorage.getItem("scholaros-sidebar-collapsed"); const next = saved === "true"; setCollapsed(next); onCollapsedChange?.(next); }, [onCollapsedChange]);
+  const toggle = () => setCollapsed((value) => { const next = !value; window.localStorage.setItem("scholaros-sidebar-collapsed", String(next)); onCollapsedChange?.(next); return next; });
   async function handleSignOut() { try { await signOutUser(); } catch (error) { console.error("Failed to sign out", error); } }
   return (
     <aside className={`flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white transition-[width] duration-200 dark:border-slate-700 dark:bg-[#404040] ${collapsed ? "w-[76px]" : "w-72"}`}>
       <div className={`shrink-0 border-b border-gray-100 py-5 dark:border-slate-700 ${collapsed ? "px-3" : "px-5"}`}><div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"}`}><Link href="/dashboard" onClick={onNavigate} title={collapsed ? "ScholarOS" : undefined} className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles size={21} strokeWidth={2.4} /></div>{!collapsed && <div><div className="text-xl font-bold tracking-tight text-gray-950 dark:text-white">ScholarOS</div><div className="text-xs text-gray-500 dark:text-gray-300">Your study workspace</div></div>}</Link></div></div>
       <Navigation onNavigate={onNavigate} collapsed={collapsed} />
       <div className={`shrink-0 border-t border-gray-100 p-3 dark:border-slate-700 ${collapsed ? "px-2" : ""}`}>
-        <Link href="/settings" onClick={onNavigate} title={collapsed ? "Settings" : undefined} className={`flex w-full items-center rounded-xl py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555] ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`}><Settings size={19} />{!collapsed && "Settings"}</Link>
+        <div className={`flex ${collapsed ? "justify-center" : "items-center gap-1"}`}>
+          <NotificationCenter />
+          {!collapsed && <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notifications</span>}
+        </div>
+        <Link href="/settings" onClick={onNavigate} title={collapsed ? "Settings" : undefined} className={`mt-1 flex w-full items-center rounded-xl py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555] ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`}><Settings size={19} />{!collapsed && "Settings"}</Link>
         <Link href="/profile" onClick={onNavigate} title={collapsed ? "Profile" : undefined} aria-current={pathname === "/profile" ? "page" : undefined} className={`mt-1 flex w-full items-center rounded-xl py-2.5 text-sm font-semibold transition ${collapsed ? "justify-center px-2" : "gap-3 px-3"} ${pathname === "/profile" ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"}`}><UserCircle size={19} />{!collapsed && "Profile"}</Link>
         <button type="button" onClick={handleSignOut} title={collapsed ? "Sign out" : undefined} className={`mt-1 flex w-full items-center rounded-xl py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 hover:text-red-600 dark:text-gray-200 dark:hover:bg-[#555555] dark:hover:text-red-400 ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`}><LogOut size={19} />{!collapsed && "Sign out"}</button>
         <button type="button" onClick={toggle} title={collapsed ? "Mở rộng sidebar" : "Thu gọn sidebar"} aria-label={collapsed ? "Mở rộng sidebar" : "Thu gọn sidebar"} className={`mt-2 flex w-full items-center rounded-xl py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555] ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`}><Menu size={19} />{!collapsed && "Thu gọn"}</button>
@@ -119,9 +123,14 @@ function SidebarPanel({ onNavigate }: { onNavigate?: () => void }) {
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--scholar-sidebar-width", desktopCollapsed ? "76px" : "288px");
+    return () => document.documentElement.style.removeProperty("--scholar-sidebar-width");
+  }, [desktopCollapsed]);
   return (
     <>
-      <div className="hidden min-h-screen md:block"><div className="fixed inset-y-0 left-0 h-screen"><SidebarPanel /></div></div>
+      <div className="hidden md:block"><div className="fixed inset-y-0 left-0 h-screen"><SidebarPanel onCollapsedChange={setDesktopCollapsed} /></div></div>
       <div className="md:hidden">
         <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur dark:border-slate-700 dark:bg-[#404040]/95"><Link href="/dashboard" className="flex items-center gap-2.5"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white"><Sparkles size={19} /></div><span className="text-lg font-bold text-gray-950 dark:text-white">ScholarOS</span></Link><div className="flex items-center gap-1"><NotificationCenter /><GlobalSearch mobile /><button type="button" aria-label={open ? "Close navigation" : "Open navigation"} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#555555]">{open ? <X size={22} /> : <Menu size={22} />}</button></div></header>
         <div className="h-16" aria-hidden="true" />
