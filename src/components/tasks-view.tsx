@@ -15,6 +15,7 @@ type Task = {
   title?: string;
   description?: string;
   dueDate?: string;
+  dueTime?: string;
   priority?: "low" | "medium" | "high";
   completed?: boolean;
 };
@@ -40,6 +41,7 @@ export default function TasksView() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("");
   const [priority, setPriority] = useState<Task["priority"]>("medium");
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
@@ -81,6 +83,8 @@ export default function TasksView() {
       if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
       const dueCompare = (a.dueDate || "9999-12-31").localeCompare(b.dueDate || "9999-12-31");
       if (dueCompare !== 0) return dueCompare;
+      const timeCompare = (a.dueTime || "99:99").localeCompare(b.dueTime || "99:99");
+      if (timeCompare !== 0) return timeCompare;
       return priorityRank[a.priority || "medium"] - priorityRank[b.priority || "medium"];
     });
   }, [tasks, filter, query, today]);
@@ -89,6 +93,7 @@ export default function TasksView() {
     setTitle("");
     setDescription("");
     setDueDate("");
+    setDueTime("");
     setPriority("medium");
     setEditingId(null);
   }
@@ -103,6 +108,7 @@ export default function TasksView() {
         title: title.trim(),
         description: description.trim(),
         dueDate: dueDate || "",
+        dueTime: dueTime || "",
         priority: priority || "medium",
         completed: false,
       };
@@ -126,6 +132,7 @@ export default function TasksView() {
     setTitle(task.title || "");
     setDescription(task.description || "");
     setDueDate(task.dueDate || "");
+    setDueTime(task.dueTime || "");
     setPriority(task.priority || "medium");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -150,6 +157,7 @@ export default function TasksView() {
         title: `${task.title || "Nhiệm vụ"} (bản sao)`,
         description: task.description || "",
         dueDate: task.dueDate || "",
+        dueTime: task.dueTime || "",
         priority: task.priority || "medium",
         completed: false,
       });
@@ -160,7 +168,7 @@ export default function TasksView() {
   }
 
   async function removeTask(task: Task) {
-    if (!user || !window.confirm(`Xóa nhiệm vụ "${task.title || "này"}"?`)) return;
+    if (!user || !window.confirm(`Xóa nhiệm vụ \"${task.title || "này"}\"?`)) return;
     try {
       await deleteUserDocument(user.uid, "tasks", task.id);
       setTasks((current) => current.filter((item) => item.id !== task.id));
@@ -209,6 +217,7 @@ export default function TasksView() {
             <label className="md:col-span-2"><span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">Tên nhiệm vụ *</span><input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="Ví dụ: Làm bài Toán HSA" className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" /></label>
             <label className="md:col-span-2"><span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">Mô tả</span><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Ghi chú ngắn..." className="w-full resize-none rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" /></label>
             <label><span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">Hạn hoàn thành</span><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-gray-600 dark:bg-[#333333] dark:text-white" /></label>
+            <label><span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">Giờ hoàn thành</span><input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} disabled={!dueDate} className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-[#333333] dark:text-white" /></label>
             <label><span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">Ưu tiên</span><select value={priority} onChange={(e) => setPriority(e.target.value as Task["priority"])} className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-gray-600 dark:bg-[#333333] dark:text-white"><option value="low">Thấp</option><option value="medium">Trung bình</option><option value="high">Cao</option></select></label>
           </div>
           <button disabled={saving} className="mt-4 rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Đang lưu..." : editingId ? "Lưu thay đổi" : "+ Thêm nhiệm vụ"}</button>
@@ -234,7 +243,7 @@ export default function TasksView() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2"><h3 className={`font-bold ${task.completed ? "text-gray-400 line-through" : "text-gray-950 dark:text-white"}`}>{task.title}</h3>{task.priority && <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${task.priority === "high" ? "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300" : task.priority === "low" ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300" : "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"}`}>{priorityLabel[task.priority]}</span>}{overdue && <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-950/60 dark:text-red-300">Quá hạn</span>}</div>
                   {task.description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{task.description}</p>}
-                  <div className={`mt-2 text-xs font-medium ${overdue ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-300"}`}>{task.dueDate ? `Hạn: ${formatDate(task.dueDate)}` : "Không đặt hạn"}{task.dueDate === today ? " · Hôm nay" : ""}</div>
+                  <div className={`mt-2 text-xs font-medium ${overdue ? "text-red-600 dark:text-red-300" : "text-gray-500 dark:text-gray-300"}`}>{task.dueDate ? `Hạn: ${formatDate(task.dueDate)}${task.dueTime ? ` lúc ${task.dueTime}` : ""}` : "Không đặt hạn"}{task.dueDate === today ? " · Hôm nay" : ""}</div>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1"><button type="button" onClick={() => startEdit(task)} className="rounded-lg px-2.5 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-600">Sửa</button><button type="button" onClick={() => duplicateTask(task)} className="rounded-lg px-2.5 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/40">Sao chép</button><button type="button" onClick={() => removeTask(task)} className="rounded-lg px-2.5 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40">Xóa</button></div>
               </div>
