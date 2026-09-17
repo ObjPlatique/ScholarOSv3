@@ -104,7 +104,7 @@ function SidebarPanel({ onNavigate, onCollapsedChange }: { onNavigate?: () => vo
   const toggle = () => setCollapsed((value) => { const next = !value; window.localStorage.setItem("scholaros-sidebar-collapsed", String(next)); onCollapsedChange?.(next); return next; });
   async function handleSignOut() { try { await signOutUser(); } catch (error) { console.error("Failed to sign out", error); } }
   return (
-    <aside className={`flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white transition-[width] duration-200 dark:border-slate-700 dark:bg-[#404040] ${collapsed ? "w-[76px]" : "w-72"}`}>
+    <aside className={`flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-gray-200 bg-white transition-[width] duration-200 dark:border-slate-700 dark:bg-[#404040] ${collapsed ? "w-[76px]" : "w-72"}`}>
       <div className={`shrink-0 border-b border-gray-100 py-5 dark:border-slate-700 ${collapsed ? "px-3" : "px-5"}`}><div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"}`}><Link href="/dashboard" onClick={onNavigate} title={collapsed ? "ScholarOS" : undefined} className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles size={21} strokeWidth={2.4} /></div>{!collapsed && <div><div className="text-xl font-bold tracking-tight text-gray-950 dark:text-white">ScholarOS</div><div className="text-xs text-gray-500 dark:text-gray-300">Your study workspace</div></div>}</Link></div></div>
       <Navigation onNavigate={onNavigate} collapsed={collapsed} />
       <div className={`shrink-0 border-t border-gray-100 p-3 dark:border-slate-700 ${collapsed ? "px-2" : ""}`}>
