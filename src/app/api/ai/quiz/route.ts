@@ -61,13 +61,17 @@ export async function POST(request: Request) {
     const difficulty = typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
     if (!subject) return NextResponse.json({ error: "Vui lòng nhập môn học." }, { status: 400 });
 
-    const prompt = `Tạo bộ trắc nghiệm học tập bằng tiếng Việt.
+    const prompt = `Tạo đúng ${count} câu trắc nghiệm bằng tiếng Việt.
 Môn: ${subject}
 Chủ đề: ${topic || "kiến thức cốt lõi của môn"}
-Số câu: ${count}
 Độ khó: ${difficulty}
 
-Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án và đúng 1 đáp án. Explanation tối đa 1 câu.`;
+Yêu cầu:
+- Đúng chính xác ${count} câu, không lặp.
+- Mỗi câu có đúng 4 phương án, đúng 1 đáp án.
+- answer là chỉ số 0-3.
+- explanation tối đa 1 câu, thật ngắn.
+- Viết câu hỏi và phương án súc tích để giảm độ dài JSON.`;
 
     const response = await fetch(API_URL, {
       method: "POST",
@@ -76,7 +80,8 @@ Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án
         model: MODEL,
         input: prompt,
         generation_config: {
-          max_output_tokens: Math.min(2400, Math.max(1200, count * 140)),
+          // 10/15 câu cần nhiều token hơn; ngân sách cũ 140 token/câu dễ làm JSON bị cắt giữa chừng.
+          max_output_tokens: Math.min(5000, Math.max(1400, count * 280)),
           thinking_level: "minimal",
         },
         response_format: {
@@ -116,6 +121,9 @@ Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án
 
     const text = extractText(data);
     if (!text) return NextResponse.json({ error: data.status && data.status !== "completed" ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).` : "AI không trả về nội dung." }, { status: 502 });
+    if (data.status === "incomplete") {
+      return NextResponse.json({ error: "Gemini đã cắt ngắn JSON trước khi hoàn tất. Hãy thử lại." }, { status: 502 });
+    }
 
     const quiz = validateQuiz(parseJson(text), count);
     return NextResponse.json({ quiz: { ...quiz, questions: balanceAnswerPositions(quiz.questions) } });
