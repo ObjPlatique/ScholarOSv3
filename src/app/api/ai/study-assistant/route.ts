@@ -34,7 +34,7 @@ export async function POST(request: Request) {
             (((item as { role?: unknown }).role === "user") || (item as { role?: unknown }).role === "model") &&
             typeof (item as { text?: unknown }).text === "string",
           )
-          .slice(-8)
+          .slice(-4)
       : [];
 
     const conversation = history
@@ -49,21 +49,18 @@ export async function POST(request: Request) {
         model: MODEL,
         input,
         system_instruction: SYSTEM_INSTRUCTION,
-        generation_config: {
-          max_output_tokens: 1000,
-          thinking_level: "low",
-        },
+        generation_config: { max_output_tokens: 700, thinking_level: "low" },
+        stream: true,
       }),
       cache: "no-store",
     });
 
-    const data = (await response.json()) as InteractionResponse;
     if (!response.ok) {
-      return NextResponse.json(
-        { error: data.error?.message || "Gemini không thể xử lý yêu cầu." },
-        { status: response.status >= 500 ? 502 : response.status },
-      );
+      const data = (await response.json()) as InteractionResponse;
+      return NextResponse.json({ error: data.error?.message || "Gemini không thể xử lý yêu cầu." }, { status: response.status >= 500 ? 502 : response.status });
     }
+    if (!response.body) return NextResponse.json({ error: "Gemini không trả về stream." }, { status: 502 });
+    return new Response(response.body, { status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no" } });
 
     const text = data.steps
       ?.filter((step) => step.type === "model_output")
