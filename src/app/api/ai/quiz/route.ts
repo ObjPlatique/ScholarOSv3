@@ -18,11 +18,11 @@ function extractText(data: InteractionResponse) {
 }
 
 function parseJson(text: string): unknown {
-  const cleaned = text.replace(/^\s*\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`\s*$/i, "").trim();
-  try { return JSON.parse(cleaned); } catch {}
-  const start = cleaned.indexOf("{"), end = cleaned.lastIndexOf("}");
-  if (start >= 0 && end > start) try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { throw new Error("AI trả về JSON chưa hoàn chỉnh. Vui lòng thử lại."); }
-  throw new Error("AI trả về dữ liệu không đúng định dạng.");
+  try {
+    return JSON.parse(text.trim());
+  } catch {
+    throw new Error("AI trả về JSON không hợp lệ. Vui lòng thử lại.");
+  }
 }
 
 function validateQuiz(value: unknown, expectedCount: number): Quiz {
@@ -67,12 +67,7 @@ Chủ đề: ${topic || "kiến thức cốt lõi của môn"}
 Số câu: ${count}
 Độ khó: ${difficulty}
 
-Yêu cầu:
-- Chính xác ${count} câu, mỗi câu đúng 4 phương án.
-- answer là chỉ số 0-3 của đáp án đúng; explanation ngắn gọn.
-- Câu hỏi rõ ràng, một đáp án đúng, không lặp. explanation tối đa 1 câu.
-- Không Markdown, không giải thích ngoài JSON; chỉ JSON.
-- Cấu trúc: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
+Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án và đúng 1 đáp án. Explanation tối đa 1 câu.`;
 
     const response = await fetch(API_URL, {
       method: "POST",
@@ -84,8 +79,37 @@ Yêu cầu:
           max_output_tokens: Math.min(2400, Math.max(1400, count * 150)),
           thinking_level: "low",
         },
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              title: { type: "string" },
+              questions: {
+                type: "array",
+                minItems: count,
+                maxItems: count,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    question: { type: "string" },
+                    options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
+                    answer: { type: "integer", minimum: 0, maximum: 3 },
+                    explanation: { type: "string" },
+                  },
+                  required: ["question", "options", "answer", "explanation"],
+                },
+              },
+            },
+            required: ["title", "questions"],
+          },
+        },
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(30000),
     });
 
     const data = (await response.json()) as InteractionResponse;
