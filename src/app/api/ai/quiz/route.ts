@@ -21,7 +21,7 @@ function parseJson(text: string): unknown {
   const cleaned = text.replace(/^\s*\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`\s*$/i, "").trim();
   try { return JSON.parse(cleaned); } catch {}
   const start = cleaned.indexOf("{"), end = cleaned.lastIndexOf("}");
-  if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+  if (start >= 0 && end > start) try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { throw new Error("AI trả về JSON chưa hoàn chỉnh. Vui lòng thử lại."); }
   throw new Error("AI trả về dữ liệu không đúng định dạng.");
 }
 
@@ -81,7 +81,7 @@ Yêu cầu:
         model: MODEL,
         input: prompt,
         generation_config: {
-          max_output_tokens: Math.min(1800, Math.max(650, count * 105)),
+          max_output_tokens: Math.min(2400, Math.max(1400, count * 150)),
           thinking_level: "low",
         },
       }),
