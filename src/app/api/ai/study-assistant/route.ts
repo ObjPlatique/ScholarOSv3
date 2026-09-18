@@ -62,22 +62,6 @@ export async function POST(request: Request) {
     if (!response.body) return NextResponse.json({ error: "Gemini không trả về stream." }, { status: 502 });
     return new Response(response.body, { status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no" } });
 
-    const text = data.steps
-      ?.filter((step) => step.type === "model_output")
-      .flatMap((step) => step.content ?? [])
-      .filter((item) => item.type === "text" && typeof item.text === "string")
-      .map((item) => item.text || "")
-      .join("")
-      .trim();
-
-    if (!text) {
-      return NextResponse.json(
-        { error: data.status && data.status !== "completed" ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).` : "AI không trả về nội dung." },
-        { status: 502 },
-      );
-    }
-
-    return NextResponse.json({ text });
   } catch {
     return NextResponse.json({ error: "Không thể kết nối tới Study Assistant. Vui lòng thử lại." }, { status: 500 });
   }
