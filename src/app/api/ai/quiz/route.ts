@@ -70,8 +70,8 @@ Số câu: ${count}
 Yêu cầu:
 - Chính xác ${count} câu, mỗi câu đúng 4 phương án.
 - answer là chỉ số 0-3 của đáp án đúng; explanation ngắn gọn.
-- Câu hỏi rõ ràng, một đáp án đúng, không lặp.
-- Không Markdown, chỉ JSON.
+- Câu hỏi rõ ràng, một đáp án đúng, không lặp. explanation tối đa 1 câu.
+- Không Markdown, không giải thích ngoài JSON; chỉ JSON.
 - Cấu trúc: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
 
     const response = await fetch(API_URL, {
@@ -81,7 +81,7 @@ Yêu cầu:
         model: MODEL,
         input: prompt,
         generation_config: {
-          max_output_tokens: Math.min(2500, Math.max(900, count * 150)),
+          max_output_tokens: Math.min(1800, Math.max(650, count * 105)),
           thinking_level: "low",
         },
       }),
