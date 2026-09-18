@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const MODEL = process.env.GEMINI_QUIZ_MODEL || "gemini-3.5-flash-lite";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
 type InteractionResponse = {
@@ -76,8 +76,8 @@ Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án
         model: MODEL,
         input: prompt,
         generation_config: {
-          max_output_tokens: Math.min(2400, Math.max(1400, count * 150)),
-          thinking_level: "low",
+          max_output_tokens: Math.min(2400, Math.max(1200, count * 140)),
+          thinking_level: "minimal",
         },
         response_format: {
           type: "text",
@@ -109,7 +109,6 @@ Tạo câu hỏi chính xác, không lặp; mỗi câu có đúng 4 phương án
         },
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(30000),
     });
 
     const data = (await response.json()) as InteractionResponse;
