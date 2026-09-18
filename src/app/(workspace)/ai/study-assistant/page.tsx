@@ -12,6 +12,19 @@ const quickPrompts = [
 ];
 function formatAiText(text: string) { return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim(); }
 
+function extractDelta(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const value = payload as Record<string, unknown>;
+  if (typeof value.delta === "string") return value.delta;
+  if (typeof value.text === "string") return value.text;
+  const content = value.content;
+  if (Array.isArray(content)) return content.map((item) => extractDelta(item)).join("");
+  if (content && typeof content === "object") return extractDelta(content);
+  const output = value.output;
+  if (output && typeof output === "object") return extractDelta(output);
+  return "";
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -21,11 +34,70 @@ export default function StudyAssistantPage() {
   const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
 
   async function sendMessage(event?: FormEvent) {
-    event?.preventDefault(); const message = input.trim(); if (!message || loading) return;
-    const previousMessages = messages; setInput(""); setError(""); setMessages((current) => [...current, { role: "user", text: message }]); setLoading(true);
-    try { const response = await fetch("/api/ai/study-assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, history: previousMessages }) }); const data = (await response.json()) as { text?: string; error?: string }; if (!response.ok || !data.text) throw new Error(data.error || "Study Assistant gặp lỗi."); setMessages((current) => [...current, { role: "model", text: formatAiText(data.text!) }]); }
-    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI."); setMessages(previousMessages); }
-    finally { setLoading(false); }
+    event?.preventDefault();
+    const message = input.trim();
+    if (!message || loading) return;
+
+    const previousMessages = messages;
+    setInput("");
+    setError("");
+    setLoading(true);
+    setMessages((current) => [...current, { role: "user", text: message }, { role: "model", text: "" }]);
+
+    try {
+      const response = await fetch("/api/ai/study-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, history: previousMessages }),
+      });
+      if (!response.ok || !response.body) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || "Study Assistant gặp lỗi.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+
+      const append = (chunk: string) => {
+        if (!chunk) return;
+        answer += chunk;
+        setMessages((current) => current.map((item, index) =>
+          index === current.length - 1 ? { ...item, text: formatAiText(answer) } : item
+        ));
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || "";
+        for (const eventBlock of events) {
+          for (const line of eventBlock.split(/\r?\n/)) {
+            if (!line.startsWith("data:")) continue;
+            const raw = line.slice(5).trim();
+            if (!raw || raw === "[DONE]") continue;
+            try { append(extractDelta(JSON.parse(raw))); } catch {}
+          }
+        }
+      }
+
+      buffer += decoder.decode();
+      for (const line of buffer.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "[DONE]") continue;
+        try { append(extractDelta(JSON.parse(raw))); } catch {}
+      }
+      if (!answer.trim()) throw new Error("AI không trả về nội dung.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI.");
+      setMessages(previousMessages);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return <main className="min-h-screen bg-[#f7f8fc] dark:bg-[#333333]"><div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col px-3 py-4 sm:px-6 sm:py-8">
