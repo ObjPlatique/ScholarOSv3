@@ -35,25 +35,13 @@ function validateQuiz(value: unknown, expectedCount: number): Quiz {
   if (!value || typeof value !== "object") throw new Error("Quiz không hợp lệ.");
   const raw = value as { title?: unknown; questions?: unknown };
 
-  if (
-    typeof raw.title !== "string" ||
-    !Array.isArray(raw.questions) ||
-    raw.questions.length !== expectedCount
-  ) {
+  if (typeof raw.title !== "string" || !Array.isArray(raw.questions) || raw.questions.length !== expectedCount) {
     throw new Error("AI không tạo đủ số câu yêu cầu.");
   }
 
   const questions: QuizQuestion[] = raw.questions.map((item): QuizQuestion => {
-    if (!item || typeof item !== "object") {
-      throw new Error("Một câu hỏi không hợp lệ.");
-    }
-
-    const q = item as {
-      question?: unknown;
-      options?: unknown;
-      answer?: unknown;
-      explanation?: unknown;
-    };
+    if (!item || typeof item !== "object") throw new Error("Một câu hỏi không hợp lệ.");
+    const q = item as { question?: unknown; options?: unknown; answer?: unknown; explanation?: unknown };
 
     if (
       typeof q.question !== "string" ||
@@ -64,55 +52,41 @@ function validateQuiz(value: unknown, expectedCount: number): Quiz {
       (q.answer as number) < 0 ||
       (q.answer as number) > 3 ||
       typeof q.explanation !== "string"
-    ) {
-      throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
-    }
+    ) throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
 
     const answer = q.answer as number;
     const options = q.options as string[];
-
-    return {
-      question: q.question,
-      options,
-      answer,
-      explanation: q.explanation,
-    };
+    return { question: q.question, options, answer, explanation: q.explanation };
   });
 
   return { title: raw.title, questions };
 }
 
+// Đưa đáp án đúng về các vị trí A/B/C/D theo vòng lặp.
+// Nhờ vậy một quiz 5/10/15 câu luôn phân bố đáp án, không phụ thuộc vào xu hướng của model.
+function balanceAnswerPositions(questions: QuizQuestion[]): QuizQuestion[] {
+  return questions.map((question, index) => {
+    const targetAnswer = index % 4;
+    const correctOption = question.options[question.answer];
+    const distractors = question.options.filter((_, optionIndex) => optionIndex !== question.answer);
+    const options = [...distractors];
+    options.splice(targetAnswer, 0, correctOption);
+    return { ...question, options, answer: targetAnswer };
+  });
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Chưa cấu hình GEMINI_API_KEY trên môi trường server." },
-      { status: 503 },
-    );
-  }
+  if (!apiKey) return NextResponse.json({ error: "Chưa cấu hình GEMINI_API_KEY trên môi trường server." }, { status: 503 });
 
   try {
-    const body = (await request.json()) as {
-      subject?: unknown;
-      topic?: unknown;
-      count?: unknown;
-      difficulty?: unknown;
-    };
-
+    const body = (await request.json()) as { subject?: unknown; topic?: unknown; count?: unknown; difficulty?: unknown };
     const subject = typeof body.subject === "string" ? body.subject.trim() : "";
     const topic = typeof body.topic === "string" ? body.topic.trim() : "";
-    const count = Number.isInteger(body.count)
-      ? Math.min(15, Math.max(5, body.count as number))
-      : 5;
-    const difficulty =
-      typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
+    const count = Number.isInteger(body.count) ? Math.min(15, Math.max(5, body.count as number)) : 5;
+    const difficulty = typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
 
-    if (!subject) {
-      return NextResponse.json(
-        { error: "Vui lòng nhập môn học." },
-        { status: 400 },
-      );
-    }
+    if (!subject) return NextResponse.json({ error: "Vui lòng nhập môn học." }, { status: 400 });
 
     const prompt = `Tạo một bộ trắc nghiệm học tập bằng tiếng Việt.
 Môn: ${subject}
@@ -127,54 +101,27 @@ Yêu cầu:
 - explanation giải thích ngắn gọn vì sao đáp án đúng.
 - Câu hỏi phải có một đáp án đúng rõ ràng, không mơ hồ.
 - Tránh lặp lại nội dung.
+- Phân bố đáp án đúng tương đối đều giữa A, B, C, D; không ưu tiên A hoặc B.
 - Chỉ trả về JSON hợp lệ, không Markdown, không code fence.
 - Cấu trúc:
 {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
 
     const response = await fetch(API_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({ model: MODEL, input: prompt }),
       cache: "no-store",
     });
 
     const data = (await response.json()) as InteractionResponse;
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.error?.message || "Gemini không thể tạo quiz." },
-        { status: response.status >= 500 ? 502 : response.status },
-      );
-    }
+    if (!response.ok) return NextResponse.json({ error: data.error?.message || "Gemini không thể tạo quiz." }, { status: response.status >= 500 ? 502 : response.status });
 
     const text = extractText(data);
-
-    if (!text) {
-      return NextResponse.json(
-        {
-          error:
-            data.status && data.status !== "completed"
-              ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).`
-              : "AI không trả về nội dung.",
-        },
-        { status: 502 },
-      );
-    }
+    if (!text) return NextResponse.json({ error: data.status && data.status !== "completed" ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).` : "AI không trả về nội dung." }, { status: 502 });
 
     const quiz = validateQuiz(parseJson(text), count);
-    return NextResponse.json({ quiz });
+    return NextResponse.json({ quiz: { ...quiz, questions: balanceAnswerPositions(quiz.questions) } });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Không thể tạo quiz. Vui lòng thử lại.",
-      },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Không thể tạo quiz. Vui lòng thử lại." }, { status: 502 });
   }
 }
