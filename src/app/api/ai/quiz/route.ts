@@ -13,20 +13,14 @@ type QuizQuestion = { question: string; options: string[]; answer: number; expla
 type Quiz = { title: string; questions: QuizQuestion[] };
 
 function extractText(data: InteractionResponse) {
-  return data.steps
-    ?.filter((step) => step.type === "model_output")
-    .flatMap((step) => step.content ?? [])
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text || "")
-    .join("")
-    .trim() || "";
+  return data.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content ?? [])
+    .filter((item) => item.type === "text" && typeof item.text === "string").map((item) => item.text || "").join("").trim() || "";
 }
 
 function parseJson(text: string): unknown {
   const cleaned = text.replace(/^\s*\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`\s*$/i, "").trim();
   try { return JSON.parse(cleaned); } catch {}
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
+  const start = cleaned.indexOf("{"), end = cleaned.lastIndexOf("}");
   if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
   throw new Error("AI trả về dữ liệu không đúng định dạng.");
 }
@@ -34,36 +28,16 @@ function parseJson(text: string): unknown {
 function validateQuiz(value: unknown, expectedCount: number): Quiz {
   if (!value || typeof value !== "object") throw new Error("Quiz không hợp lệ.");
   const raw = value as { title?: unknown; questions?: unknown };
-
-  if (typeof raw.title !== "string" || !Array.isArray(raw.questions) || raw.questions.length !== expectedCount) {
-    throw new Error("AI không tạo đủ số câu yêu cầu.");
-  }
-
+  if (typeof raw.title !== "string" || !Array.isArray(raw.questions) || raw.questions.length !== expectedCount) throw new Error("AI không tạo đủ số câu yêu cầu.");
   const questions: QuizQuestion[] = raw.questions.map((item): QuizQuestion => {
     if (!item || typeof item !== "object") throw new Error("Một câu hỏi không hợp lệ.");
     const q = item as { question?: unknown; options?: unknown; answer?: unknown; explanation?: unknown };
-
-    if (
-      typeof q.question !== "string" ||
-      !Array.isArray(q.options) ||
-      q.options.length !== 4 ||
-      !q.options.every((x) => typeof x === "string") ||
-      !Number.isInteger(q.answer) ||
-      (q.answer as number) < 0 ||
-      (q.answer as number) > 3 ||
-      typeof q.explanation !== "string"
-    ) throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
-
-    const answer = q.answer as number;
-    const options = q.options as string[];
-    return { question: q.question, options, answer, explanation: q.explanation };
+    if (typeof q.question !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || !q.options.every((x) => typeof x === "string") || !Number.isInteger(q.answer) || (q.answer as number) < 0 || (q.answer as number) > 3 || typeof q.explanation !== "string") throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
+    return { question: q.question, options: q.options as string[], answer: q.answer as number, explanation: q.explanation };
   });
-
   return { title: raw.title, questions };
 }
 
-// Đưa đáp án đúng về các vị trí A/B/C/D theo vòng lặp.
-// Nhờ vậy một quiz 5/10/15 câu luôn phân bố đáp án, không phụ thuộc vào xu hướng của model.
 function balanceAnswerPositions(questions: QuizQuestion[]): QuizQuestion[] {
   return questions.map((question, index) => {
     const targetAnswer = index % 4;
@@ -85,31 +59,32 @@ export async function POST(request: Request) {
     const topic = typeof body.topic === "string" ? body.topic.trim() : "";
     const count = Number.isInteger(body.count) ? Math.min(15, Math.max(5, body.count as number)) : 5;
     const difficulty = typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
-
     if (!subject) return NextResponse.json({ error: "Vui lòng nhập môn học." }, { status: 400 });
 
-    const prompt = `Tạo một bộ trắc nghiệm học tập bằng tiếng Việt.
+    const prompt = `Tạo bộ trắc nghiệm học tập bằng tiếng Việt.
 Môn: ${subject}
-Chủ đề: ${topic || "Tự chọn kiến thức cốt lõi của môn"}
+Chủ đề: ${topic || "kiến thức cốt lõi của môn"}
 Số câu: ${count}
 Độ khó: ${difficulty}
 
 Yêu cầu:
-- Đúng chính xác ${count} câu.
-- Mỗi câu có đúng 4 phương án.
-- answer là chỉ số 0-3 của phương án đúng.
-- explanation giải thích ngắn gọn vì sao đáp án đúng.
-- Câu hỏi phải có một đáp án đúng rõ ràng, không mơ hồ.
-- Tránh lặp lại nội dung.
-- Phân bố đáp án đúng tương đối đều giữa A, B, C, D; không ưu tiên A hoặc B.
-- Chỉ trả về JSON hợp lệ, không Markdown, không code fence.
-- Cấu trúc:
-{"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
+- Chính xác ${count} câu, mỗi câu đúng 4 phương án.
+- answer là chỉ số 0-3 của đáp án đúng; explanation ngắn gọn.
+- Câu hỏi rõ ràng, một đáp án đúng, không lặp.
+- Không Markdown, chỉ JSON.
+- Cấu trúc: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
 
     const response = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({ model: MODEL, input: prompt }),
+      body: JSON.stringify({
+        model: MODEL,
+        input: prompt,
+        generation_config: {
+          max_output_tokens: Math.min(2500, Math.max(900, count * 150)),
+          thinking_level: "low",
+        },
+      }),
       cache: "no-store",
     });
 
