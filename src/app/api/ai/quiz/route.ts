@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const MODEL = process.env.GEMINI_QUIZ_MODEL || "gemini-3.5-flash-lite";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
 type InteractionResponse = {
@@ -13,168 +13,121 @@ type QuizQuestion = { question: string; options: string[]; answer: number; expla
 type Quiz = { title: string; questions: QuizQuestion[] };
 
 function extractText(data: InteractionResponse) {
-  return data.steps
-    ?.filter((step) => step.type === "model_output")
-    .flatMap((step) => step.content ?? [])
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text || "")
-    .join("")
-    .trim() || "";
+  return data.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content ?? [])
+    .filter((item) => item.type === "text" && typeof item.text === "string").map((item) => item.text || "").join("").trim() || "";
 }
 
 function parseJson(text: string): unknown {
-  const cleaned = text.replace(/^\s*\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`\s*$/i, "").trim();
-  try { return JSON.parse(cleaned); } catch {}
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-  throw new Error("AI trả về dữ liệu không đúng định dạng.");
+  try {
+    return JSON.parse(text.trim());
+  } catch {
+    throw new Error("AI trả về JSON không hợp lệ. Vui lòng thử lại.");
+  }
 }
 
 function validateQuiz(value: unknown, expectedCount: number): Quiz {
   if (!value || typeof value !== "object") throw new Error("Quiz không hợp lệ.");
   const raw = value as { title?: unknown; questions?: unknown };
-
-  if (
-    typeof raw.title !== "string" ||
-    !Array.isArray(raw.questions) ||
-    raw.questions.length !== expectedCount
-  ) {
-    throw new Error("AI không tạo đủ số câu yêu cầu.");
-  }
-
+  if (typeof raw.title !== "string" || !Array.isArray(raw.questions) || raw.questions.length !== expectedCount) throw new Error("AI không tạo đủ số câu yêu cầu.");
   const questions: QuizQuestion[] = raw.questions.map((item): QuizQuestion => {
-    if (!item || typeof item !== "object") {
-      throw new Error("Một câu hỏi không hợp lệ.");
-    }
-
-    const q = item as {
-      question?: unknown;
-      options?: unknown;
-      answer?: unknown;
-      explanation?: unknown;
-    };
-
-    if (
-      typeof q.question !== "string" ||
-      !Array.isArray(q.options) ||
-      q.options.length !== 4 ||
-      !q.options.every((x) => typeof x === "string") ||
-      !Number.isInteger(q.answer) ||
-      (q.answer as number) < 0 ||
-      (q.answer as number) > 3 ||
-      typeof q.explanation !== "string"
-    ) {
-      throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
-    }
-
-    const answer = q.answer as number;
-    const options = q.options as string[];
-
-    return {
-      question: q.question,
-      options,
-      answer,
-      explanation: q.explanation,
-    };
+    if (!item || typeof item !== "object") throw new Error("Một câu hỏi không hợp lệ.");
+    const q = item as { question?: unknown; options?: unknown; answer?: unknown; explanation?: unknown };
+    if (typeof q.question !== "string" || !Array.isArray(q.options) || q.options.length !== 4 || !q.options.every((x) => typeof x === "string") || !Number.isInteger(q.answer) || (q.answer as number) < 0 || (q.answer as number) > 3 || typeof q.explanation !== "string") throw new Error("AI tạo câu hỏi không đúng cấu trúc.");
+    return { question: q.question, options: q.options as string[], answer: q.answer as number, explanation: q.explanation };
   });
-
   return { title: raw.title, questions };
+}
+
+function balanceAnswerPositions(questions: QuizQuestion[]): QuizQuestion[] {
+  return questions.map((question, index) => {
+    const targetAnswer = index % 4;
+    const correctOption = question.options[question.answer];
+    const distractors = question.options.filter((_, optionIndex) => optionIndex !== question.answer);
+    const options = [...distractors];
+    options.splice(targetAnswer, 0, correctOption);
+    return { ...question, options, answer: targetAnswer };
+  });
 }
 
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Chưa cấu hình GEMINI_API_KEY trên môi trường server." },
-      { status: 503 },
-    );
-  }
+  if (!apiKey) return NextResponse.json({ error: "Chưa cấu hình GEMINI_API_KEY trên môi trường server." }, { status: 503 });
 
   try {
-    const body = (await request.json()) as {
-      subject?: unknown;
-      topic?: unknown;
-      count?: unknown;
-      difficulty?: unknown;
-    };
-
+    const body = (await request.json()) as { subject?: unknown; topic?: unknown; count?: unknown; difficulty?: unknown };
     const subject = typeof body.subject === "string" ? body.subject.trim() : "";
     const topic = typeof body.topic === "string" ? body.topic.trim() : "";
-    const count = Number.isInteger(body.count)
-      ? Math.min(15, Math.max(5, body.count as number))
-      : 5;
-    const difficulty =
-      typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
+    const count = Number.isInteger(body.count) ? Math.min(15, Math.max(5, body.count as number)) : 5;
+    const difficulty = typeof body.difficulty === "string" ? body.difficulty : "Trung bình";
+    if (!subject) return NextResponse.json({ error: "Vui lòng nhập môn học." }, { status: 400 });
 
-    if (!subject) {
-      return NextResponse.json(
-        { error: "Vui lòng nhập môn học." },
-        { status: 400 },
-      );
-    }
-
-    const prompt = `Tạo một bộ trắc nghiệm học tập bằng tiếng Việt.
+    const prompt = `Tạo đúng ${count} câu trắc nghiệm bằng tiếng Việt.
 Môn: ${subject}
-Chủ đề: ${topic || "Tự chọn kiến thức cốt lõi của môn"}
-Số câu: ${count}
+Chủ đề: ${topic || "kiến thức cốt lõi của môn"}
 Độ khó: ${difficulty}
 
 Yêu cầu:
-- Đúng chính xác ${count} câu.
-- Mỗi câu có đúng 4 phương án.
-- answer là chỉ số 0-3 của phương án đúng.
-- explanation giải thích ngắn gọn vì sao đáp án đúng.
-- Câu hỏi phải có một đáp án đúng rõ ràng, không mơ hồ.
-- Tránh lặp lại nội dung.
-- Chỉ trả về JSON hợp lệ, không Markdown, không code fence.
-- Cấu trúc:
-{"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]}`;
+- Đúng chính xác ${count} câu, không lặp.
+- Mỗi câu có đúng 4 phương án, đúng 1 đáp án.
+- answer là chỉ số 0-3.
+- explanation tối đa 1 câu, thật ngắn.
+- Viết câu hỏi và phương án súc tích để giảm độ dài JSON.`;
 
     const response = await fetch(API_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({ model: MODEL, input: prompt }),
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        model: MODEL,
+        input: prompt,
+        generation_config: {
+          // 10/15 câu cần nhiều token hơn; ngân sách cũ 140 token/câu dễ làm JSON bị cắt giữa chừng.
+          max_output_tokens: Math.min(5000, Math.max(1400, count * 280)),
+          thinking_level: "minimal",
+        },
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              title: { type: "string" },
+              questions: {
+                type: "array",
+                minItems: count,
+                maxItems: count,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    question: { type: "string" },
+                    options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
+                    answer: { type: "integer", minimum: 0, maximum: 3 },
+                    explanation: { type: "string" },
+                  },
+                  required: ["question", "options", "answer", "explanation"],
+                },
+              },
+            },
+            required: ["title", "questions"],
+          },
+        },
+      }),
       cache: "no-store",
     });
 
     const data = (await response.json()) as InteractionResponse;
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.error?.message || "Gemini không thể tạo quiz." },
-        { status: response.status >= 500 ? 502 : response.status },
-      );
-    }
+    if (!response.ok) return NextResponse.json({ error: data.error?.message || "Gemini không thể tạo quiz." }, { status: response.status >= 500 ? 502 : response.status });
 
     const text = extractText(data);
-
-    if (!text) {
-      return NextResponse.json(
-        {
-          error:
-            data.status && data.status !== "completed"
-              ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).`
-              : "AI không trả về nội dung.",
-        },
-        { status: 502 },
-      );
+    if (!text) return NextResponse.json({ error: data.status && data.status !== "completed" ? `Gemini chưa hoàn tất phản hồi (trạng thái: ${data.status}).` : "AI không trả về nội dung." }, { status: 502 });
+    if (data.status === "incomplete") {
+      return NextResponse.json({ error: "Gemini đã cắt ngắn JSON trước khi hoàn tất. Hãy thử lại." }, { status: 502 });
     }
 
     const quiz = validateQuiz(parseJson(text), count);
-    return NextResponse.json({ quiz });
+    return NextResponse.json({ quiz: { ...quiz, questions: balanceAnswerPositions(quiz.questions) } });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Không thể tạo quiz. Vui lòng thử lại.",
-      },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Không thể tạo quiz. Vui lòng thử lại." }, { status: 502 });
   }
 }
