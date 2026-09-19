@@ -155,3 +155,66 @@ html:not(.dark) .border-gray-200,
 html:not(.dark) .border-gray-300 {
   border-color: #e5e7eb !important;
 }
+
+/* Theme contrast layer: every shared utility surface/text color has a clear
+   light/dark counterpart. Accent colors are intentionally preserved. */
+html:not(.dark) .text-white {
+  color: #111827 !important;
+}
+html:not(.dark) .text-gray-400 {
+  color: #6b7280 !important;
+}
+html:not(.dark) .text-gray-300 {
+  color: #4b5563 !important;
+}
+html:not(.dark) .text-slate-400,
+html:not(.dark) .text-slate-500,
+html:not(.dark) .text-slate-600,
+html:not(.dark) .text-slate-700 {
+  color: #4b5563 !important;
+}
+
+html:not(.dark) .bg-gray-200,
+html:not(.dark) .bg-gray-300,
+html:not(.dark) .bg-slate-200,
+html:not(.dark) .bg-slate-300 {
+  background-color: #f3f4f6 !important;
+}
+
+html:not(.dark) .hover\:bg-gray-50:hover,
+html:not(.dark) .hover\:bg-gray-100:hover,
+html:not(.dark) .hover\:bg-gray-200:hover,
+html:not(.dark) .hover\:bg-slate-100:hover,
+html:not(.dark) .hover\:bg-slate-200:hover {
+  background-color: #f3f4f6 !important;
+}
+
+html:not(.dark) input,
+html:not(.dark) textarea,
+html:not(.dark) select {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+}
+
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+html:not(.dark) .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e5e7eb !important;
+}
+
+/* Keep dark mode intentionally distinct from light mode. */
+html.dark body {
+  background: #333333 !important;
+  color: #ffffff !important;
+}
+html.dark .bg-white,
+html.dark .bg-gray-50,
+html.dark .bg-gray-100,
+html.dark .bg-slate-50,
+html.dark .bg-slate-100 {
+  color: #ffffff;
+}
