@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  writeBatch,
   doc,
   getDoc,
   getDocs,
@@ -18,7 +19,8 @@ export type ScholarCollection =
   | "schedule"
   | "notes"
   | "files"
-  | "userSettings";
+  | "userSettings"
+  | "aiConversations";
 
 export type UserDocument = {
   id: string;
@@ -107,4 +109,55 @@ export async function deleteUserDocument(
   id: string,
 ) {
   return deleteDoc(doc(db, "users", uid, name, id));
+}
+
+
+export type AIConversation = {
+  id: string;
+  type: "study-assistant" | "chat";
+  title: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+export type AIMessage = {
+  id: string;
+  role: "user" | "model";
+  text: string;
+  createdAt?: unknown;
+};
+
+export async function listAIConversations(uid: string, type?: AIConversation["type"]) {
+  const conversations = await listUserDocuments<AIConversation>(uid, "aiConversations");
+  return conversations
+    .filter((item) => !type || item.type === type)
+    .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+}
+
+export async function createAIConversation(uid: string, data: Omit<AIConversation, "id" | "createdAt" | "updatedAt">) {
+  return createUserDocument(uid, "aiConversations", data);
+}
+
+export async function addAIMessage(uid: string, conversationId: string, data: Omit<AIMessage, "id" | "createdAt">) {
+  const cleanData = sanitizeData(data) as DocumentData;
+  return addDoc(collection(db, "users", uid, "aiConversations", conversationId, "messages"), {
+    ...cleanData,
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function listAIMessages(uid: string, conversationId: string) {
+  const snapshot = await getDocs(collection(db, "users", uid, "aiConversations", conversationId, "messages"));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }) as AIMessage)
+    .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
+}
+
+export async function deleteAIConversation(uid: string, conversationId: string) {
+  const messagesRef = collection(db, "users", uid, "aiConversations", conversationId, "messages");
+  const snapshot = await getDocs(messagesRef);
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((item) => batch.delete(item.ref));
+  batch.delete(doc(db, "users", uid, "aiConversations", conversationId));
+  await batch.commit();
 }
