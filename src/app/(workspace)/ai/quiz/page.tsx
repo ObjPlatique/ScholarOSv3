@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { BookOpen, CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { createUserDocument, listUserDocuments, updateUserDocument } from "../../../../lib/firestore";
 
 type Question = { question: string; options: string[]; answer: number; explanation: string };
@@ -23,28 +24,37 @@ export default function QuizPage() {
   const [quizId, setQuizId] = useState("");
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    void (async () => {
-      try {
-        const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes");
-        const latest = [...items].sort((a, b) => {
-          const aTime = typeof (a.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (a.createdAt as { toMillis: () => number }).toMillis() : 0;
-          const bTime = typeof (b.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (b.createdAt as { toMillis: () => number }).toMillis() : 0;
-          return bTime - aTime;
-        })[0];
-        if (!latest) return;
-        setQuiz({ title: latest.title, questions: latest.questions });
-        setSubject(latest.subject || "");
-        setTopic(latest.topic || "");
-        setDifficulty(latest.difficulty || "Trung bình");
-        setAnswers(latest.answers || {});
-        setSubmitted(Boolean(latest.completed));
-        setQuizId(latest.id);
-      } catch {
-        // Loading the saved quiz is best-effort; generating a new quiz still works.
-      }
-    })();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) return;
+      void (async () => {
+        try {
+          const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes");
+          const latest = [...items].sort((a, b) => {
+            const aTime = typeof (a.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function"
+              ? (a.createdAt as { toMillis: () => number }).toMillis()
+              : 0;
+            const bTime = typeof (b.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function"
+              ? (b.createdAt as { toMillis: () => number }).toMillis()
+              : 0;
+            return bTime - aTime;
+          })[0];
+
+          if (!latest) return;
+          setQuiz({ title: latest.title, questions: latest.questions });
+          setSubject(latest.subject || "");
+          setTopic(latest.topic || "");
+          setCount(latest.questionCount || latest.questions.length);
+          setDifficulty(latest.difficulty || "Trung bình");
+          setAnswers(latest.answers || {});
+          setSubmitted(Boolean(latest.completed));
+          setQuizId(latest.id);
+        } catch {
+          // Loading the saved quiz is best-effort; generating a new quiz still works.
+        }
+      })();
+    });
+
+    return unsubscribe;
   }, []);
 
   async function generateQuiz() {
@@ -74,18 +84,7 @@ export default function QuizPage() {
 
   const score = quiz ? quiz.questions.reduce((sum, q, i) => sum + (answers[i] === q.answer ? 1 : 0), 0) : 0;
 
-  async function saveQuizResult() {
-    const user = auth.currentUser;
-    if (!user || !quiz || quizId) return;
-    try {
-      const created = await createUserDocument(user.uid, "aiQuizzes", {
-        type: "quiz", title: quiz.title, subject, topic, difficulty,
-        questionCount: quiz.questions.length, questions: quiz.questions,
-        answers, score, completed: true, completedAt: new Date().toISOString(),
-      });
-      setQuizId(created.id);
-    } catch { setError("Quiz đã chấm nhưng chưa thể lưu kết quả."); }
-  }
+
 
   async function submitQuiz() {
     if (!quiz || Object.keys(answers).length !== quiz.questions.length) return;
