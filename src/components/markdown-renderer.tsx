@@ -5,11 +5,11 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
-export default function MarkdownRenderer({ text }: { text: string }) {
+export default function MarkdownRenderer({ text, inline = false }: { text: string; inline?: boolean }) {
   const normalized = text.replace(/\r\n?/g, "\n").trim();
 
   return (
-    <div className="markdown-content min-w-0 break-words leading-7">
+    <div className={`markdown-content min-w-0 break-words ${inline ? "inline leading-6" : "leading-7"}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
@@ -17,10 +17,10 @@ export default function MarkdownRenderer({ text }: { text: string }) {
           h1: ({ children }) => <h2 className="mt-4 mb-2 text-lg font-bold leading-7 text-gray-950 dark:text-white">{children}</h2>,
           h2: ({ children }) => <h3 className="mt-4 mb-2 text-base font-bold leading-7 text-gray-950 dark:text-white">{children}</h3>,
           h3: ({ children }) => <h4 className="mt-3 mb-1.5 text-sm font-bold leading-6 text-gray-950 dark:text-white">{children}</h4>,
-          p: ({ children }) => <p className="my-2 leading-7">{children}</p>,
-          ul: ({ children }) => <ul className="my-2 list-disc space-y-1.5 pl-6">{children}</ul>,
-          ol: ({ children }) => <ol className="my-2 list-decimal space-y-1.5 pl-6">{children}</ol>,
-          li: ({ children }) => <li className="pl-1 leading-7">{children}</li>,
+          p: ({ children }) => inline ? <span className="leading-6">{children}</span> : <p className="my-2 leading-7">{children}</p>,
+          ul: ({ children }) => inline ? <span className="inline">{children}</span> : <ul className="my-2 list-disc space-y-1.5 pl-6">{children}</ul>,
+          ol: ({ children }) => inline ? <span className="inline">{children}</span> : <ol className="my-2 list-decimal space-y-1.5 pl-6">{children}</ol>,
+          li: ({ children }) => inline ? <span className="mr-1">{children}</span> : <li className="pl-1 leading-7">{children}</li>,
           blockquote: ({ children }) => <blockquote className="my-3 border-l-4 border-indigo-400 pl-4 italic text-gray-600 dark:text-gray-300">{children}</blockquote>,
           strong: ({ children }) => <strong className="font-bold text-gray-950 dark:text-white">{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
