@@ -9,7 +9,7 @@ import { createUserDocument, listUserDocuments, updateUserDocument } from "../..
 
 type Question = { question: string; options: string[]; answer: number; explanation: string };
 type Quiz = { title: string; questions: Question[] };
-type StoredQuiz = { id: string; type: "quiz"; title: string; subject: string; topic: string; difficulty: string; questionCount: number; questions: Question[]; answers?: Record<string, number>; score?: number; completed?: boolean; completedAt?: unknown; };
+type StoredQuiz = { id: string; type: "quiz"; title: string; subject: string; topic: string; difficulty: string; questionCount: number; questions: Question[]; answers?: Record<string, number>; score?: number; completed?: boolean; completedAt?: unknown; createdAt?: unknown; updatedAt?: unknown; };
 
 export default function QuizPage() {
   const [subject, setSubject] = useState("");
