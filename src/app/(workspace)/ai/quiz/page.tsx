@@ -5,7 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { BookOpen, CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
-import { addAIMessage, createUserDocument, listUserDocuments, updateUserDocument } from "../../../../lib/firestore";
+import { createUserDocument, listUserDocuments } from "../../../../lib/firestore";
 
 type Question = { question: string; options: string[]; answer: number; explanation: string };
 type Quiz = { title: string; questions: Question[] };
@@ -22,16 +22,13 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [quizId, setQuizId] = useState("");
-  const [history, setHistory] = useState<StoredQuiz[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+
 
   useEffect(() => onAuthStateChanged(auth, async (user) => {
     if (!user) { setLoadingHistory(false); return; }
     try {
-      const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes" as never);
-      setHistory(items.sort((a,b) => String(b.id).localeCompare(String(a.id))).slice(0, 10));
+      const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes");
     } catch { setError("Không thể tải lịch sử Quiz."); }
-    finally { setLoadingHistory(false); }
   }), []);
 
   async function generateQuiz() {
@@ -52,7 +49,7 @@ export default function QuizPage() {
     const user = auth.currentUser;
     if (!user || !quiz || quizId) return;
     try {
-      const created = await createUserDocument(user.uid, "aiQuizzes" as never, {
+      const created = await createUserDocument(user.uid, "aiQuizzes", {
         type: "quiz", title: quiz.title, subject, topic, difficulty,
         questionCount: quiz.questions.length, questions: quiz.questions,
         score, completed: true,
