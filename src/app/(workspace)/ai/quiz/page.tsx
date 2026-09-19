@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 import { BookOpen, CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
+import { auth } from "../../../../lib/firebase";
+import { addAIMessage, createUserDocument, listUserDocuments, updateUserDocument } from "../../../../lib/firestore";
 
 type Question = { question: string; options: string[]; answer: number; explanation: string };
 type Quiz = { title: string; questions: Question[] };
+type StoredQuiz = { id: string; type: "quiz"; title: string; subject: string; topic: string; difficulty: string; questionCount: number; questions: Question[]; score?: number; completed?: boolean; completedAt?: unknown; };
 
 export default function QuizPage() {
   const [subject, setSubject] = useState("");
@@ -17,6 +21,18 @@ export default function QuizPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [quizId, setQuizId] = useState("");
+  const [history, setHistory] = useState<StoredQuiz[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+
+  useEffect(() => onAuthStateChanged(auth, async (user) => {
+    if (!user) { setLoadingHistory(false); return; }
+    try {
+      const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes" as never);
+      setHistory(items.sort((a,b) => String(b.id).localeCompare(String(a.id))).slice(0, 10));
+    } catch { setError("Không thể tải lịch sử Quiz."); }
+    finally { setLoadingHistory(false); }
+  }), []);
 
   async function generateQuiz() {
     setLoading(true); setError(""); setQuiz(null); setAnswers({}); setSubmitted(false);
@@ -25,11 +41,25 @@ export default function QuizPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể tạo quiz.");
       setQuiz(data.quiz);
+      setQuizId("");
     } catch (err) { setError(err instanceof Error ? err.message : "Không thể tạo quiz."); }
     finally { setLoading(false); }
   }
 
   const score = quiz ? quiz.questions.reduce((sum, q, i) => sum + (answers[i] === q.answer ? 1 : 0), 0) : 0;
+
+  async function saveQuizResult() {
+    const user = auth.currentUser;
+    if (!user || !quiz || quizId) return;
+    try {
+      const created = await createUserDocument(user.uid, "aiQuizzes" as never, {
+        type: "quiz", title: quiz.title, subject, topic, difficulty,
+        questionCount: quiz.questions.length, questions: quiz.questions,
+        score, completed: true,
+      });
+      setQuizId(created.id);
+    } catch { setError("Quiz đã chấm nhưng chưa thể lưu kết quả."); }
+  }
 
   return <main className="min-h-screen bg-[#f7f8fc] dark:bg-[#333333] dark:text-white">
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
@@ -61,7 +91,7 @@ export default function QuizPage() {
           <div className="mt-4 grid gap-2">{q.options.map((option,j)=>{const selected=answers[i]===j; const correct=submitted&&j===q.answer; const wrong=submitted&&selected&&!correct; return <button key={j} type="button" onClick={()=>!submitted&&setAnswers(a=>({...a,[i]:j}))} className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left ${correct?"border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30":wrong?"border-red-500 bg-red-50 dark:bg-red-950/30":selected?"border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30":"border-gray-200 hover:border-indigo-300 dark:border-gray-600"}`}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold">{String.fromCharCode(65+j)}</span><span className="leading-6"><MarkdownRenderer text={option} inline /></span></button>})}</div>
           {submitted&&<div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm leading-6 dark:bg-[#333333]"><strong>Giải thích:</strong><MarkdownRenderer text={q.explanation} /></div>}
         </article>)}
-        <div className="sticky bottom-3 flex justify-end rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-gray-600 dark:bg-[#404040]/95">{!submitted?<button onClick={()=>setSubmitted(true)} disabled={Object.keys(answers).length!==quiz.questions.length} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 font-bold text-white disabled:opacity-50"><CheckCircle2 size={18}/> Nộp bài</button>:<button onClick={generateQuiz} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white"><RefreshCw size={18}/> Tạo bộ khác</button>}</div>
+        <div className="sticky bottom-3 flex justify-end rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-gray-600 dark:bg-[#404040]/95">{!submitted?<button onClick={()=>{setSubmitted(true); void saveQuizResult();}} disabled={Object.keys(answers).length!==quiz.questions.length} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 font-bold text-white disabled:opacity-50"><CheckCircle2 size={18}/> Nộp bài</button>:<button onClick={generateQuiz} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white"><RefreshCw size={18}/> Tạo bộ khác</button>}</div>
       </section>}
     </div>
   </main>;
