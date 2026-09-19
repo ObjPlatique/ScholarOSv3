@@ -84,3 +84,34 @@ html.dark .text-indigo-700 { color: #c7d2fe !important; }
 html.dark .text-indigo-600 { color: #a5b4fc !important; }
 html.dark .shadow-sm,
 html.dark .shadow-xl { --tw-shadow-color: rgb(0 0 0 / 0.3); }
+
+/* Light mode normalization: components that use the shared dark palette should never leak
+   dark surfaces or browser form controls into the light theme. */
+html:not(.dark) {
+  color-scheme: light;
+}
+
+html:not(.dark) body {
+  background: #f7f8fc;
+  color: #182033;
+}
+
+html:not(.dark) input,
+html:not(.dark) textarea,
+html:not(.dark) select {
+  color-scheme: light;
+}
+
+/* Safety net for legacy/custom dark surfaces outside a dark: variant. */
+html:not(.dark) .bg-\[\#333333\],
+html:not(.dark) .bg-\[\#404040\],
+html:not(.dark) .bg-\[\#454545\],
+html:not(.dark) .bg-\[\#505050\] {
+  background-color: #ffffff !important;
+}
+
+html:not(.dark) .border-\[\#4b4b4b\],
+html:not(.dark) .border-\[\#555\],
+html:not(.dark) .border-slate-700 {
+  border-color: #e5e7eb !important;
+}
