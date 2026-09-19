@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { useState } from "react";
 import { BookOpen, CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
@@ -23,13 +22,6 @@ export default function QuizPage() {
   const [error, setError] = useState("");
   const [quizId, setQuizId] = useState("");
 
-
-  useEffect(() => onAuthStateChanged(auth, async (user) => {
-    if (!user) { setLoadingHistory(false); return; }
-    try {
-      const items = await listUserDocuments<StoredQuiz>(user.uid, "aiQuizzes");
-    } catch { setError("Không thể tải lịch sử Quiz."); }
-  }), []);
 
   async function generateQuiz() {
     setLoading(true); setError(""); setQuiz(null); setAnswers({}); setSubmitted(false);
