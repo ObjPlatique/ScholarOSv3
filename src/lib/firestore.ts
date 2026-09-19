@@ -21,7 +21,7 @@ export type ScholarCollection =
   | "files"
   | "userSettings"
   | "aiConversations"
-  | "aiQuizzes";
+  | "aiQuizzes"\n  | "aiPlans";
 
 export type UserDocument = {
   id: string;
