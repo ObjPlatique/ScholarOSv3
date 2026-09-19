@@ -131,7 +131,11 @@ export async function listAIConversations(uid: string, type?: AIConversation["ty
   const conversations = await listUserDocuments<AIConversation>(uid, "aiConversations");
   return conversations
     .filter((item) => !type || item.type === type)
-    .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+    .sort((a, b) => {
+      const aTime = typeof (a.updatedAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (a.updatedAt as { toMillis: () => number }).toMillis() : 0;
+      const bTime = typeof (b.updatedAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (b.updatedAt as { toMillis: () => number }).toMillis() : 0;
+      return bTime - aTime;
+    });
 }
 
 export async function createAIConversation(uid: string, data: Omit<AIConversation, "id" | "createdAt" | "updatedAt">) {
@@ -150,7 +154,11 @@ export async function listAIMessages(uid: string, conversationId: string) {
   const snapshot = await getDocs(collection(db, "users", uid, "aiConversations", conversationId, "messages"));
   return snapshot.docs
     .map((item) => ({ id: item.id, ...item.data() }) as AIMessage)
-    .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
+    .sort((a, b) => {
+      const aTime = typeof (a.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (a.createdAt as { toMillis: () => number }).toMillis() : 0;
+      const bTime = typeof (b.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (b.createdAt as { toMillis: () => number }).toMillis() : 0;
+      return aTime - bTime;
+    });
 }
 
 export async function deleteAIConversation(uid: string, conversationId: string) {
