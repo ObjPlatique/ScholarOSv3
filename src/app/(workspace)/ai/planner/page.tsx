@@ -105,7 +105,7 @@ export default function AIPlannerPage() {
           <p className="mt-2 text-gray-600 dark:text-gray-300">AI biến mục tiêu, thời gian và môn học của bạn thành kế hoạch học tập thực tế.</p>
         </header>
 
-        <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
+        <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm dark:border-indigo-900 dark:bg-[#404040]">\n          <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><Sparkles size={16} className="text-indigo-600 dark:text-indigo-300" /><span className="font-semibold">Planner nâng cấp</span><span className="text-gray-600 dark:text-gray-300">AI sẽ tham khảo Tasks, Schedule, Habits, Notes và Quiz hiện có để tránh trùng lịch và ưu tiên nội dung cần học.</span></div>\n        </section>\n\n        <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-[#404040]">
             <div className="mb-5 flex items-center gap-2 font-semibold"><Target size={19} /> Thông tin đầu vào</div>
             <div className="space-y-4">
@@ -149,7 +149,7 @@ export default function AIPlannerPage() {
             ) : (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900 dark:bg-[#404040]">
-                  <h2 className="text-xl font-bold">{plan.title}</h2>
+                  <h2 className="text-xl font-bold">{plan.title}</h2>\n                  <div className="mt-3 rounded-xl bg-white/70 p-3 text-sm dark:bg-[#333333]"><span className="font-semibold">Trọng tâm:</span> {plan.dailyFocus}</div>
                   <div className="mt-2 text-sm text-gray-700 dark:text-gray-200"><MarkdownRenderer text={plan.summary} /></div>
                 </div>
                 {plan.items.map((item, index) => (
