@@ -124,17 +124,15 @@ export async function listAIConversations(uid: string) {
 
 export async function createAIConversation(
   uid: string,
-  type: AIConversation["type"],
-  title: string,
+  data: Omit<AIConversation, "id" | "createdAt" | "updatedAt">,
 ) {
-  return createUserDocument(uid, "aiConversations", { type, title });
+  return createUserDocument(uid, "aiConversations", data);
 }
 
 export async function addAIMessage(
   uid: string,
   conversationId: string,
-  role: AIMessage["role"],
-  text: string,
+  data: Omit<AIMessage, "id" | "createdAt">,
 ) {
   const messagesRef = collection(
     db,
@@ -144,7 +142,7 @@ export async function addAIMessage(
     conversationId,
     "messages",
   );
-  return addDoc(messagesRef, { role, text, createdAt: serverTimestamp() });
+  return addDoc(messagesRef, { ...data, createdAt: serverTimestamp() });
 }
 
 export async function listAIMessages(uid: string, conversationId: string) {
