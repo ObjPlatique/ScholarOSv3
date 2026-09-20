@@ -148,7 +148,7 @@ export default function AIPlannerPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900 dark:bg-[#404040]">
                   <h2 className="text-xl font-bold">{plan.title}</h2>
-                  <div className="mt-2 text-sm text-gray-700 dark:text-gray-200"><MarkdownRenderer content={plan.summary} /></div>
+                  <div className="mt-2 text-sm text-gray-700 dark:text-gray-200"><MarkdownRenderer text={plan.summary} /></div>
                 </div>
                 {plan.items.map((item, index) => (
                   <article key={index} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-[#404040]">
@@ -158,12 +158,12 @@ export default function AIPlannerPage() {
                     </div>
                     <h3 className="mt-3 text-lg font-semibold">{item.subject}</h3>
                     <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"><Clock3 size={16} /> {item.minutes} phút</div>
-                    <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{item.tasks.map((task, taskIndex) => <li key={taskIndex}><MarkdownRenderer content={task} inline /></li>)}</ul>
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{item.tasks.map((task, taskIndex) => <li key={taskIndex}><MarkdownRenderer text={task} inline /></li>)}</ul>
                   </article>
                 ))}
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-[#404040]">
                   <h3 className="font-semibold">Mẹo thực hiện</h3>
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-200">{plan.tips.map((tip, index) => <li key={index}><MarkdownRenderer content={tip} inline /></li>)}</ul>
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-200">{plan.tips.map((tip, index) => <li key={index}><MarkdownRenderer text={tip} inline /></li>)}</ul>
                 </div>
                 <button onClick={generatePlan} disabled={loading} className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 font-medium dark:border-gray-600 dark:bg-[#404040]">
                   <RefreshCw size={17} /> Tạo lại
