@@ -23,7 +23,8 @@ export type ScholarCollection =
   | "aiConversations"
   | "aiQuizzes"
   | "aiPlans"
-  | "aiAnswerGrades";
+  | "aiAnswerGrades"
+  | "errorLogs";
 
 export type UserDocument = {
   id: string;
