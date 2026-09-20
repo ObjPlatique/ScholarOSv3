@@ -11,7 +11,7 @@ import { signOutUser } from "@/lib/firebase-auth";
 import NotificationCenter from "@/components/notification-center";
 
 const groups = [
-  { title: "AI", icon: Brain, items: [["Study Assistant", "/ai/study-assistant", Brain], ["AI Planner", "/ai/planner", Sparkles], ["Quiz & Grader", "/ai/quiz", CheckSquare]] as const },
+  { title: "AI", icon: Brain, items: [["Study Assistant", "/ai/study-assistant", Brain], ["AI Planner", "/ai/planner", Sparkles], ["Quiz Generator", "/ai/quiz", CheckSquare], ["Answer Grader", "/ai/answer-grader", CheckSquare]] as const },
   { title: "Tools", icon: Wrench, items: [["Dashboard", "/dashboard", LayoutDashboard], ["Schedule", "/tools/schedule", CalendarDays], ["Tasks", "/tools/tasks", CheckSquare], ["Habits", "/tools/habits", Flame], ["Notes", "/tools/notes", FileText], ["Files", "/tools/files", FileText], ["Pomodoro", "/tools/pomodoro", Timer]] as const },
 ];
 
