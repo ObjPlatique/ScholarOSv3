@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertCircle, Brain, CalendarDays, CheckSquare, FileText, Flame, LayoutDashboard, LogOut, Menu, Search, Settings, Sparkles, Timer, UserCircle, Wrench, X } from "lucide-react";
+import { AlertCircle, Brain, CalendarDays, CheckSquare, FileText, Flame, LayoutDashboard, LogOut, Menu, MessageSquare, Search, Settings, Sparkles, Timer, UserCircle, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -11,7 +11,7 @@ import { signOutUser } from "@/lib/firebase-auth";
 import NotificationCenter from "@/components/notification-center";
 
 const groups = [
-  { title: "AI", icon: Brain, items: [["Study Assistant", "/ai/study-assistant", Brain], ["AI Planner", "/ai/planner", Sparkles], ["Quiz Generator", "/ai/quiz", CheckSquare], ["Answer Grader", "/ai/answer-grader", CheckSquare], ["Error Logs", "/ai/error-logs", AlertCircle]] as const },
+  { title: "AI", icon: Brain, items: [["Study Assistant", "/ai/study-assistant", Brain], ["AI Chat", "/ai/chat", MessageSquare], ["AI Planner", "/ai/planner", Sparkles], ["Quiz Generator", "/ai/quiz", CheckSquare], ["Answer Grader", "/ai/answer-grader", CheckSquare], ["Error Logs", "/ai/error-logs", AlertCircle]] as const },
   { title: "Tools", icon: Wrench, items: [["Dashboard", "/dashboard", LayoutDashboard], ["Schedule", "/tools/schedule", CalendarDays], ["Tasks", "/tools/tasks", CheckSquare], ["Habits", "/tools/habits", Flame], ["Notes", "/tools/notes", FileText], ["Files", "/tools/files", FileText], ["Pomodoro", "/tools/pomodoro", Timer]] as const },
 ];
 
