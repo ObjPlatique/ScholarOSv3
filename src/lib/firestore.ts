@@ -21,7 +21,8 @@ export type ScholarCollection =
   | "files"
   | "userSettings"
   | "aiConversations"
-  | "aiQuizzes"\n  | "aiPlans";
+  | "aiQuizzes"
+  | "aiPlans";
 
 export type UserDocument = {
   id: string;
@@ -33,15 +34,8 @@ export type UserDocument = {
 const collectionRef = (uid: string, name: ScholarCollection) =>
   collection(db, "users", uid, name);
 
-/** Remove undefined values before sending data to Firestore.
- * This keeps optional fields consistent across all modules and avoids
- * Firestore write failures caused by accidental undefined values.
- */
 function sanitizeData(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeData);
-  }
-
+  if (Array.isArray(value)) return value.map(sanitizeData);
   if (value && typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
@@ -49,7 +43,6 @@ function sanitizeData(value: unknown): unknown {
     }
     return result;
   }
-
   return value;
 }
 
@@ -71,11 +64,7 @@ export async function getUserDocument<T extends DocumentData>(
 ) {
   const snapshot = await getDoc(doc(db, "users", uid, name, id));
   if (!snapshot.exists()) return null;
-
-  return {
-    id: snapshot.id,
-    ...snapshot.data(),
-  } as T & { id: string };
+  return { id: snapshot.id, ...snapshot.data() } as T & { id: string };
 }
 
 export async function createUserDocument(
@@ -112,7 +101,6 @@ export async function deleteUserDocument(
   return deleteDoc(doc(db, "users", uid, name, id));
 }
 
-
 export type AIConversation = {
   id: string;
   type: "study-assistant" | "chat";
@@ -128,45 +116,68 @@ export type AIMessage = {
   createdAt?: unknown;
 };
 
-export async function listAIConversations(uid: string, type?: AIConversation["type"]) {
-  const conversations = await listUserDocuments<AIConversation>(uid, "aiConversations");
-  return conversations
-    .filter((item) => !type || item.type === type)
-    .sort((a, b) => {
-      const aTime = typeof (a.updatedAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (a.updatedAt as { toMillis: () => number }).toMillis() : 0;
-      const bTime = typeof (b.updatedAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (b.updatedAt as { toMillis: () => number }).toMillis() : 0;
-      return bTime - aTime;
-    });
+export async function listAIConversations(uid: string) {
+  return listUserDocuments<AIConversation>(uid, "aiConversations");
 }
 
-export async function createAIConversation(uid: string, data: Omit<AIConversation, "id" | "createdAt" | "updatedAt">) {
-  return createUserDocument(uid, "aiConversations", data);
+export async function createAIConversation(
+  uid: string,
+  type: AIConversation["type"],
+  title: string,
+) {
+  return createUserDocument(uid, "aiConversations", { type, title });
 }
 
-export async function addAIMessage(uid: string, conversationId: string, data: Omit<AIMessage, "id" | "createdAt">) {
-  const cleanData = sanitizeData(data) as DocumentData;
-  return addDoc(collection(db, "users", uid, "aiConversations", conversationId, "messages"), {
-    ...cleanData,
-    createdAt: serverTimestamp(),
-  });
+export async function addAIMessage(
+  uid: string,
+  conversationId: string,
+  role: AIMessage["role"],
+  text: string,
+) {
+  const messagesRef = collection(
+    db,
+    "users",
+    uid,
+    "aiConversations",
+    conversationId,
+    "messages",
+  );
+  return addDoc(messagesRef, { role, text, createdAt: serverTimestamp() });
 }
 
 export async function listAIMessages(uid: string, conversationId: string) {
-  const snapshot = await getDocs(collection(db, "users", uid, "aiConversations", conversationId, "messages"));
-  return snapshot.docs
-    .map((item) => ({ id: item.id, ...item.data() }) as AIMessage)
-    .sort((a, b) => {
-      const aTime = typeof (a.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (a.createdAt as { toMillis: () => number }).toMillis() : 0;
-      const bTime = typeof (b.createdAt as { toMillis?: () => number } | undefined)?.toMillis === "function" ? (b.createdAt as { toMillis: () => number }).toMillis() : 0;
-      return aTime - bTime;
-    });
+  const messagesRef = collection(
+    db,
+    "users",
+    uid,
+    "aiConversations",
+    conversationId,
+    "messages",
+  );
+  const snapshot = await getDocs(messagesRef);
+  return snapshot.docs.map((item: QueryDocumentSnapshot) => ({
+    id: item.id,
+    ...item.data(),
+  })) as Array<AIMessage & { id: string }>;
 }
 
-export async function deleteAIConversation(uid: string, conversationId: string) {
-  const messagesRef = collection(db, "users", uid, "aiConversations", conversationId, "messages");
-  const snapshot = await getDocs(messagesRef);
+export async function deleteAIConversation(
+  uid: string,
+  conversationId: string,
+) {
+  const messagesRef = collection(
+    db,
+    "users",
+    uid,
+    "aiConversations",
+    conversationId,
+    "messages",
+  );
+  const messageSnapshot = await getDocs(messagesRef);
   const batch = writeBatch(db);
-  snapshot.docs.forEach((item) => batch.delete(item.ref));
+
+  messageSnapshot.docs.forEach((message) => batch.delete(message.ref));
   batch.delete(doc(db, "users", uid, "aiConversations", conversationId));
-  await batch.commit();
+
+  return batch.commit();
 }
