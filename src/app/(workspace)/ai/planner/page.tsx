@@ -22,6 +22,8 @@ export default function AIPlannerPage() {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState("");
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextSummary, setContextSummary] = useState({ tasks: 0, schedule: 0, habits: 0, notes: 0, quizzes: 0 });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -50,7 +52,7 @@ export default function AIPlannerPage() {
     return unsubscribe;
   }, []);
 
-  async function generatePlan() {
+  async function buildPlannerContext(uid?: string) {\n    if (!uid) return {};\n    const [tasks, schedule, habits, notes, quizzes] = await Promise.all([\n      listUserDocuments<Record<string, unknown>>(uid, "tasks"),\n      listUserDocuments<Record<string, unknown>>(uid, "schedule"),\n      listUserDocuments<Record<string, unknown>>(uid, "habits"),\n      listUserDocuments<Record<string, unknown>>(uid, "notes"),\n      listUserDocuments<Record<string, unknown>>(uid, "aiQuizzes"),\n    ]);\n    return {\n      tasks: tasks.slice(0, 40).map(({ id, title, description, dueDate, priority, completed }) => ({ id, title, description, dueDate, priority, completed })),\n      schedule: schedule.slice(0, 40).map(({ id, title, subject, day, startTime, endTime, location }) => ({ id, title, subject, day, startTime, endTime, location })),\n      habits: habits.slice(0, 30).map(({ id, name, frequency, targetDays, active }) => ({ id, name, frequency, targetDays, active })),\n      notes: notes.slice(0, 20).map(({ id, title, category, content }) => ({ id, title, category, content: typeof content === "string" ? content.slice(0, 500) : "" })),\n      quizzes: quizzes.slice(0, 10).map(({ id, subject, topic, difficulty, score, questionCount, completed }) => ({ id, subject, topic, difficulty, score, questionCount, completed })),\n    };\n  }\n\n  async function generatePlan() {
     if (!goal.trim()) {
       setError("Vui lòng nhập mục tiêu học tập.");
       return;
@@ -61,7 +63,7 @@ export default function AIPlannerPage() {
       const response = await fetch("/api/ai/planner", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal, subjects, examDate, hours, level, constraints }),
+        body: JSON.stringify({\n          goal, subjects, examDate, hours, level, constraints,\n          context: await buildPlannerContext(auth.currentUser?.uid),\n        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể tạo kế hoạch.");
