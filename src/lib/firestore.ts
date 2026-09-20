@@ -118,8 +118,9 @@ export type AIMessage = {
   createdAt?: unknown;
 };
 
-export async function listAIConversations(uid: string) {
-  return listUserDocuments<AIConversation>(uid, "aiConversations");
+export async function listAIConversations(uid: string, type?: AIConversation["type"]) {
+  const items = await listUserDocuments<AIConversation>(uid, "aiConversations");
+  return type ? items.filter((item) => item.type === type) : items;
 }
 
 export async function createAIConversation(
