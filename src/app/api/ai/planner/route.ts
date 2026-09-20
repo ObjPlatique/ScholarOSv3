@@ -43,13 +43,14 @@ export async function POST(request: Request) {
   if (!apiKey) return NextResponse.json({ error: "Chưa cấu hình GEMINI_API_KEY trên môi trường server." }, { status: 503 });
 
   try {
-    const body = await request.json() as { goal?: unknown; subjects?: unknown; examDate?: unknown; hours?: unknown; level?: unknown; constraints?: unknown };
+    const body = await request.json() as { goal?: unknown; subjects?: unknown; examDate?: unknown; hours?: unknown; level?: unknown; constraints?: unknown; context?: unknown };
     const goal = typeof body.goal === "string" ? body.goal.trim() : "";
     const subjects = typeof body.subjects === "string" ? body.subjects.trim() : "";
     const examDate = typeof body.examDate === "string" ? body.examDate : "";
     const hours = typeof body.hours === "number" ? Math.min(12, Math.max(1, body.hours)) : 3;
     const level = typeof body.level === "string" ? body.level : "Trung bình";
     const constraints = typeof body.constraints === "string" ? body.constraints.trim() : "";
+    const context = body.context && typeof body.context === "object" ? body.context : {};
     if (!goal) return NextResponse.json({ error: "Vui lòng nhập mục tiêu." }, { status: 400 });
 
     const prompt = `Lập kế hoạch học tập bằng tiếng Việt.

@@ -22,7 +22,9 @@ export type ScholarCollection =
   | "userSettings"
   | "aiConversations"
   | "aiQuizzes"
-  | "aiPlans";
+  | "aiPlans"
+  | "aiAnswerGrades"
+  | "errorLogs";
 
 export type UserDocument = {
   id: string;
@@ -116,23 +118,22 @@ export type AIMessage = {
   createdAt?: unknown;
 };
 
-export async function listAIConversations(uid: string) {
-  return listUserDocuments<AIConversation>(uid, "aiConversations");
+export async function listAIConversations(uid: string, type?: AIConversation["type"]) {
+  const items = await listUserDocuments<AIConversation>(uid, "aiConversations");
+  return type ? items.filter((item) => item.type === type) : items;
 }
 
 export async function createAIConversation(
   uid: string,
-  type: AIConversation["type"],
-  title: string,
+  data: Omit<AIConversation, "id" | "createdAt" | "updatedAt">,
 ) {
-  return createUserDocument(uid, "aiConversations", { type, title });
+  return createUserDocument(uid, "aiConversations", data);
 }
 
 export async function addAIMessage(
   uid: string,
   conversationId: string,
-  role: AIMessage["role"],
-  text: string,
+  data: Omit<AIMessage, "id" | "createdAt">,
 ) {
   const messagesRef = collection(
     db,
@@ -142,7 +143,7 @@ export async function addAIMessage(
     conversationId,
     "messages",
   );
-  return addDoc(messagesRef, { role, text, createdAt: serverTimestamp() });
+  return addDoc(messagesRef, { ...data, createdAt: serverTimestamp() });
 }
 
 export async function listAIMessages(uid: string, conversationId: string) {

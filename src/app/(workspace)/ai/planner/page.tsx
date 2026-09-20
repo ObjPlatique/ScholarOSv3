@@ -22,6 +22,8 @@ export default function AIPlannerPage() {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState("");
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextSummary, setContextSummary] = useState({ tasks: 0, schedule: 0, habits: 0, notes: 0, quizzes: 0 });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -50,6 +52,24 @@ export default function AIPlannerPage() {
     return unsubscribe;
   }, []);
 
+  async function buildPlannerContext(uid?: string) {
+    if (!uid) return {};
+    const [tasks, schedule, habits, notes, quizzes] = await Promise.all([
+      listUserDocuments<Record<string, unknown>>(uid, "tasks"),
+      listUserDocuments<Record<string, unknown>>(uid, "schedule"),
+      listUserDocuments<Record<string, unknown>>(uid, "habits"),
+      listUserDocuments<Record<string, unknown>>(uid, "notes"),
+      listUserDocuments<Record<string, unknown>>(uid, "aiQuizzes"),
+    ]);
+    return {
+      tasks: tasks.slice(0, 40).map(({ id, title, description, dueDate, priority, completed }) => ({ id, title, description, dueDate, priority, completed })),
+      schedule: schedule.slice(0, 40).map(({ id, title, subject, day, startTime, endTime, location }) => ({ id, title, subject, day, startTime, endTime, location })),
+      habits: habits.slice(0, 30).map(({ id, name, frequency, targetDays, active }) => ({ id, name, frequency, targetDays, active })),
+      notes: notes.slice(0, 20).map(({ id, title, category, content }) => ({ id, title, category, content: typeof content === "string" ? content.slice(0, 500) : "" })),
+      quizzes: quizzes.slice(0, 10).map(({ id, subject, topic, difficulty, score, questionCount, completed }) => ({ id, subject, topic, difficulty, score, questionCount, completed })),
+    };
+  }
+
   async function generatePlan() {
     if (!goal.trim()) {
       setError("Vui lòng nhập mục tiêu học tập.");
@@ -61,7 +81,10 @@ export default function AIPlannerPage() {
       const response = await fetch("/api/ai/planner", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal, subjects, examDate, hours, level, constraints }),
+        body: JSON.stringify({
+          goal, subjects, examDate, hours, level, constraints,
+          context: await buildPlannerContext(auth.currentUser?.uid),
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể tạo kế hoạch.");
@@ -102,6 +125,10 @@ export default function AIPlannerPage() {
           <h1 className="text-3xl font-bold">Lập kế hoạch học tập</h1>
           <p className="mt-2 text-gray-600 dark:text-gray-300">AI biến mục tiêu, thời gian và môn học của bạn thành kế hoạch học tập thực tế.</p>
         </header>
+
+        <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm dark:border-indigo-900 dark:bg-[#404040]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><Sparkles size={16} className="text-indigo-600 dark:text-indigo-300" /><span className="font-semibold">Planner nâng cấp</span><span className="text-gray-600 dark:text-gray-300">AI sẽ tham khảo Tasks, Schedule, Habits, Notes và Quiz hiện có để tránh trùng lịch và ưu tiên nội dung cần học.</span></div>
+        </section>
 
         <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-[#404040]">
@@ -148,6 +175,7 @@ export default function AIPlannerPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900 dark:bg-[#404040]">
                   <h2 className="text-xl font-bold">{plan.title}</h2>
+                  <div className="mt-3 rounded-xl bg-white/70 p-3 text-sm dark:bg-[#333333]"><span className="font-semibold">Trọng tâm:</span> {plan.dailyFocus}</div>
                   <div className="mt-2 text-sm text-gray-700 dark:text-gray-200"><MarkdownRenderer text={plan.summary} /></div>
                 </div>
                 {plan.items.map((item, index) => (
