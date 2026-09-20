@@ -22,7 +22,8 @@ export type ScholarCollection =
   | "userSettings"
   | "aiConversations"
   | "aiQuizzes"
-  | "aiPlans";
+  | "aiPlans"
+  | "aiAnswerGrades";
 
 export type UserDocument = {
   id: string;
