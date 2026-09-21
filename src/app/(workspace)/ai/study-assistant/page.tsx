@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Bot, BookOpen, Calculator, Lightbulb, MessageSquare, Send, Sparkles, Trash2, User } from "lucide-react";
+import { Bot, BookOpen, Calculator, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
@@ -32,6 +32,7 @@ export default function StudyAssistantPage() {
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt?: unknown; updatedAt?: unknown }>>([]);
   const hasMessages = messages.length > 0;
   const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
 
@@ -42,8 +43,16 @@ export default function StudyAssistantPage() {
         return;
       }
       try {
-        const conversations = await listAIConversations(user.uid, "study-assistant");
-        const latest = conversations[0];
+        const items = await listAIConversations(user.uid, "study-assistant");
+        const getTime = (value: unknown) =>
+          typeof (value as { toMillis?: () => number } | undefined)?.toMillis === "function"
+            ? (value as { toMillis: () => number }).toMillis()
+            : 0;
+        const sorted = [...items].sort(
+          (a, b) => getTime(b.updatedAt ?? b.createdAt) - getTime(a.updatedAt ?? a.createdAt),
+        );
+        setConversations(sorted.map(({ id, title, createdAt, updatedAt }) => ({ id, title, createdAt, updatedAt })));
+        const latest = sorted[0];
         if (latest) {
           const stored = await listAIMessages(user.uid, latest.id);
           setConversationId(latest.id);
@@ -56,6 +65,31 @@ export default function StudyAssistantPage() {
       }
     });
   }, []);
+
+  async function openConversation(id: string) {
+    const user = auth.currentUser;
+    if (!user || loading || id === conversationId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const stored = await listAIMessages(user.uid, id);
+      setConversationId(id);
+      setMessages(stored.map((item) => ({ role: item.role, text: item.text })));
+      setInput("");
+    } catch {
+      setError("Không thể mở cuộc trò chuyện.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startNewConversation() {
+    if (loading) return;
+    setConversationId("");
+    setMessages([]);
+    setInput("");
+    setError("");
+  }
 
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
@@ -74,10 +108,72 @@ export default function StudyAssistantPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history: previousMessages }),
       });
-      const data = (await response.json()) as { text?: string; error?: string };
-      if (!response.ok || !data.text) throw new Error(data.error || "Study Assistant gặp lỗi.");
 
-      const assistantText = formatAiText(data.text);
+      if (!response.ok || !response.body) {
+        let errorMessage = "Study Assistant gặp lỗi.";
+        try {
+          const data = (await response.json()) as { error?: string };
+          errorMessage = data.error || errorMessage;
+        } catch {}
+        throw new Error(errorMessage);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+      let streamError = "";
+
+      const appendEvents = (chunk: string) => {
+        buffer += chunk;
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || "";
+
+        for (const event of events) {
+          const dataLine = event
+            .split(/\r?\n/)
+            .find((line) => line.startsWith("data:"));
+          if (!dataLine) continue;
+
+          const raw = dataLine.slice(5).trim();
+          if (!raw || raw === "[DONE]") continue;
+
+          try {
+            const payload = JSON.parse(raw) as {
+              event_type?: string;
+              error?: { message?: string };
+              delta?: { type?: string; text?: string };
+            };
+
+            if (payload.event_type === "error") {
+              streamError = payload.error?.message || "Study Assistant gặp lỗi.";
+              continue;
+            }
+
+            if (payload.event_type === "step.delta" && payload.delta?.type === "text") {
+              assistantText += payload.delta.text || "";
+              setMessages((current) => [
+                ...current.filter((item, index) => !(item.role === "model" && index === current.length - 1)),
+                { role: "model", text: formatAiText(assistantText) },
+              ]);
+            }
+          } catch {
+            // Ignore incomplete SSE frames; the next chunk completes them.
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        appendEvents(decoder.decode(value, { stream: true }));
+      }
+      appendEvents(decoder.decode());
+
+      if (streamError) throw new Error(streamError);
+      assistantText = formatAiText(assistantText);
+      if (!assistantText) throw new Error("AI không trả về nội dung.");
+
       const user = auth.currentUser;
       if (user) {
         let activeConversationId = conversationId;
@@ -88,6 +184,10 @@ export default function StudyAssistantPage() {
           });
           activeConversationId = created.id;
           setConversationId(activeConversationId);
+          setConversations((current) => [
+            { id: activeConversationId, title: message.slice(0, 80) || "Cuộc trò chuyện mới" },
+            ...current.filter((item) => item.id !== activeConversationId),
+          ]);
         }
 
         await addAIMessage(user.uid, activeConversationId, { role: "user", text: message });
@@ -95,11 +195,20 @@ export default function StudyAssistantPage() {
         await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
           title: message.slice(0, 80) || "Cuộc trò chuyện mới",
         });
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === activeConversationId
+              ? { ...item, title: message.slice(0, 80) || "Cuộc trò chuyện mới" }
+              : item,
+          ),
+        );
       }
-
-      setMessages((current) => [...current, { role: "model", text: assistantText }]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không thể nhận phản hồi từ Study Assistant.",
+      );
       setMessages(previousMessages);
     } finally {
       setLoading(false);
@@ -117,6 +226,7 @@ export default function StudyAssistantPage() {
       await deleteAIConversation(user.uid, conversationId);
       setConversationId("");
       setMessages([]);
+      setConversations((current) => current.filter((item) => item.id !== conversationId));
     } catch {
       setError("Không thể xóa cuộc trò chuyện. Vui lòng thử lại.");
     } finally {
@@ -145,7 +255,32 @@ export default function StudyAssistantPage() {
           </div>
         </header>
 
-        <section className="flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-600 dark:bg-[#3b3b3b]">
+        <div className="grid min-h-[520px] flex-1 gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
+          <aside className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-600 dark:bg-[#3b3b3b] lg:flex lg:flex-col">
+            <div className="border-b border-gray-200 p-3 dark:border-gray-600">
+              <button type="button" onClick={startNewConversation} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50">
+                <Plus size={17} /> Cuộc trò chuyện mới
+              </button>
+            </div>
+            <div className="px-3 pt-3 text-xs font-bold uppercase tracking-wider text-gray-400">Lịch sử hội thoại</div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {conversations.length === 0 ? (
+                <p className="px-2 py-4 text-center text-xs text-gray-400">Chưa có hội thoại nào.</p>
+              ) : conversations.map((item) => (
+                <button key={item.id} type="button" onClick={() => void openConversation(item.id)} disabled={loading} className={`mb-1 w-full truncate rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${item.id === conversationId ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#555555]"}`}>
+                  {item.title || "Cuộc trò chuyện"}
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <section className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-600 dark:bg-[#3b3b3b]">
+          <div className="border-b border-gray-200 p-2 dark:border-gray-600 lg:hidden">
+            <div className="flex gap-2 overflow-x-auto">
+              <button type="button" onClick={startNewConversation} disabled={loading} className="flex shrink-0 items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"><Plus size={16} /> Mới</button>
+              {conversations.map((item) => <button key={item.id} type="button" onClick={() => void openConversation(item.id)} disabled={loading} className={`max-w-48 shrink-0 truncate rounded-xl border px-3 py-2 text-sm font-medium ${item.id === conversationId ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" : "border-gray-200 text-gray-700 dark:border-gray-600 dark:text-gray-200"}`}>{item.title || "Cuộc trò chuyện"}</button>)}
+            </div>
+          </div>
           <div className="flex-1 overflow-y-auto p-3 sm:p-6">
             {loadingHistory ? (
               <div className="flex min-h-[390px] items-center justify-center text-sm text-gray-500 dark:text-gray-300">Đang tải hội thoại…</div>
@@ -179,6 +314,7 @@ export default function StudyAssistantPage() {
             <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><MessageSquare size={12} /> Enter để gửi · Shift + Enter để xuống dòng</p>
           </div>
         </section>
+        </div>
       </div>
     </main>
   );

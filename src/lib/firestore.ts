@@ -156,10 +156,17 @@ export async function listAIMessages(uid: string, conversationId: string) {
     "messages",
   );
   const snapshot = await getDocs(messagesRef);
-  return snapshot.docs.map((item: QueryDocumentSnapshot) => ({
+  const messages = snapshot.docs.map((item: QueryDocumentSnapshot) => ({
     id: item.id,
     ...item.data(),
   })) as Array<AIMessage & { id: string }>;
+
+  const getTime = (value: unknown) =>
+    typeof (value as { toMillis?: () => number } | undefined)?.toMillis === "function"
+      ? (value as { toMillis: () => number }).toMillis()
+      : 0;
+
+  return messages.sort((a, b) => getTime(a.createdAt) - getTime(b.createdAt));
 }
 
 export async function deleteAIConversation(
