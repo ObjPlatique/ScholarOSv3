@@ -36,14 +36,15 @@ export default function AnswerGraderPage() {
   const [expectedAnswer, setExpectedAnswer] = useState("");
   const [rubric, setRubric] = useState("");
   const [studentAnswer, setStudentAnswer] = useState("");
-  const [image, setImage] = useState<ImageAttachment | null>(null);
+  const [questionImage, setQuestionImage] = useState<ImageAttachment | null>(null);
+  const [answerImage, setAnswerImage] = useState<ImageAttachment | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function gradeAnswer() {
-    if (!question.trim() || !studentAnswer.trim()) {
-      setError("Vui lòng nhập câu hỏi và câu trả lời.");
+    if ((!question.trim() && !questionImage) || (!studentAnswer.trim() && !answerImage)) {
+      setError("Vui lòng nhập câu hỏi/câu trả lời hoặc thêm ảnh tương ứng.");
       return;
     }
     setLoading(true); setError(""); setResult(null);
@@ -51,7 +52,7 @@ export default function AnswerGraderPage() {
       const response = await fetch("/api/ai/answer-grader", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer, image: image ? { data: image.data, mimeType: image.mimeType } : undefined }),
+        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer, questionImage: questionImage ? { data: questionImage.data, mimeType: questionImage.mimeType } : undefined, answerImage: answerImage ? { data: answerImage.data, mimeType: answerImage.mimeType } : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể chấm bài.");
@@ -102,37 +103,9 @@ export default function AnswerGraderPage() {
               <label className="block text-sm font-medium">Câu trả lời *
                 <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời của bạn..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
-              <div className="rounded-xl border border-dashed border-gray-300 p-3 dark:border-gray-600">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-sm font-semibold"><ImagePlus size={17} /> Ảnh đề / bài làm</div>
-                  {image && <button type="button" onClick={() => setImage(null)} disabled={loading} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-[#333333]" aria-label="Xóa ảnh"><X size={16} /></button>}
-                </div>
-                {image ? (
-                  <div className="flex items-center gap-3">
-                    <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh bài làm" className="h-20 w-20 rounded-lg object-cover" />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{image.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-300">AI sẽ đọc ảnh khi chấm bài.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 dark:bg-[#333333] dark:text-gray-200 dark:hover:bg-indigo-500/10">
-                    <ImagePlus size={18} /> Thêm ảnh
-                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      event.target.value = "";
-                      if (!file) return;
-                      try {
-                        setError("");
-                        setImage(await readImage(file));
-                      } catch (error) {
-                        setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
-                      }
-                    }} />
-                  </label>
-                )}
-                <p className="mt-2 text-xs text-gray-400">JPG, PNG, WebP · tối đa 6 MB · ảnh chỉ dùng cho lần chấm này.</p>
-              </div>
+              <ImageField label="Ảnh chứa câu hỏi" image={questionImage} setImage={setQuestionImage} loading={loading} setError={setError} />
+              <ImageField label="Ảnh chứa câu trả lời" image={answerImage} setImage={setAnswerImage} loading={loading} setError={setError} />
+              <p className="text-xs text-gray-400">Bạn có thể nhập văn bản, dùng ảnh, hoặc kết hợp cả hai cho từng phần.</p>
               <button onClick={gradeAnswer} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                 {loading ? <><Loader2 size={18} className="animate-spin"/> Đang chấm...</> : <><Sparkles size={18}/> Chấm bài</>}
               </button>
@@ -170,6 +143,26 @@ export default function AnswerGraderPage() {
       </div>
     </main>
   );
+}
+
+function ImageField({ label, image, setImage, loading, setError }: { label: string; image: ImageAttachment | null; setImage: (image: ImageAttachment | null) => void; loading: boolean; setError: (error: string) => void }) {
+  return <div className="rounded-xl border border-dashed border-gray-300 p-3 dark:border-gray-600">
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-sm font-semibold"><ImagePlus size={17} /> {label}</div>
+      {image && <button type="button" onClick={() => setImage(null)} disabled={loading} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-[#333333]" aria-label="Xóa ảnh"><X size={16} /></button>}
+    </div>
+    {image ? <div className="flex items-center gap-3">
+      <img src={`data:${image.mimeType};base64,${image.data}`} alt={label} className="h-20 w-20 rounded-lg object-cover" />
+      <div className="min-w-0"><p className="truncate text-sm font-medium">{image.name}</p><p className="text-xs text-gray-500 dark:text-gray-300">AI sẽ đọc ảnh khi chấm bài.</p></div>
+    </div> : <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 dark:bg-[#333333] dark:text-gray-200 dark:hover:bg-indigo-500/10">
+      <ImagePlus size={18} /> Thêm ảnh
+      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} onChange={async (event) => {
+        const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
+        try { setError(""); setImage(await readImage(file)); } catch (error) { setError(error instanceof Error ? error.message : "Không thể đọc ảnh."); }
+      }} />
+    </label>}
+    <p className="mt-2 text-xs text-gray-400">JPG, PNG, WebP · tối đa 6 MB</p>
+  </div>;
 }
 
 function ResultList({ title, items }: { title: string; items: string[] }) {
