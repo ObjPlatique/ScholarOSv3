@@ -108,10 +108,72 @@ export default function StudyAssistantPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history: previousMessages }),
       });
-      const data = (await response.json()) as { text?: string; error?: string };
-      if (!response.ok || !data.text) throw new Error(data.error || "Study Assistant gặp lỗi.");
 
-      const assistantText = formatAiText(data.text);
+      if (!response.ok || !response.body) {
+        let errorMessage = "Study Assistant gặp lỗi.";
+        try {
+          const data = (await response.json()) as { error?: string };
+          errorMessage = data.error || errorMessage;
+        } catch {}
+        throw new Error(errorMessage);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+      let streamError = "";
+
+      const appendEvents = (chunk: string) => {
+        buffer += chunk;
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || "";
+
+        for (const event of events) {
+          const dataLine = event
+            .split(/\r?\n/)
+            .find((line) => line.startsWith("data:"));
+          if (!dataLine) continue;
+
+          const raw = dataLine.slice(5).trim();
+          if (!raw || raw === "[DONE]") continue;
+
+          try {
+            const payload = JSON.parse(raw) as {
+              event_type?: string;
+              error?: { message?: string };
+              delta?: { type?: string; text?: string };
+            };
+
+            if (payload.event_type === "error") {
+              streamError = payload.error?.message || "Study Assistant gặp lỗi.";
+              continue;
+            }
+
+            if (payload.event_type === "step.delta" && payload.delta?.type === "text") {
+              assistantText += payload.delta.text || "";
+              setMessages((current) => [
+                ...current.filter((item, index) => !(item.role === "model" && index === current.length - 1)),
+                { role: "model", text: formatAiText(assistantText) },
+              ]);
+            }
+          } catch {
+            // Ignore incomplete SSE frames; the next chunk completes them.
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        appendEvents(decoder.decode(value, { stream: true }));
+      }
+      appendEvents(decoder.decode());
+
+      if (streamError) throw new Error(streamError);
+      assistantText = formatAiText(assistantText);
+      if (!assistantText) throw new Error("AI không trả về nội dung.");
+
       const user = auth.currentUser;
       if (user) {
         let activeConversationId = conversationId;
@@ -122,7 +184,10 @@ export default function StudyAssistantPage() {
           });
           activeConversationId = created.id;
           setConversationId(activeConversationId);
-          setConversations((current) => [{ id: activeConversationId, title: message.slice(0, 80) || "Cuộc trò chuyện mới" }, ...current.filter((item) => item.id !== activeConversationId)]);
+          setConversations((current) => [
+            { id: activeConversationId, title: message.slice(0, 80) || "Cuộc trò chuyện mới" },
+            ...current.filter((item) => item.id !== activeConversationId),
+          ]);
         }
 
         await addAIMessage(user.uid, activeConversationId, { role: "user", text: message });
@@ -130,12 +195,20 @@ export default function StudyAssistantPage() {
         await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
           title: message.slice(0, 80) || "Cuộc trò chuyện mới",
         });
-        setConversations((current) => current.map((item) => item.id === activeConversationId ? { ...item, title: message.slice(0, 80) || "Cuộc trò chuyện mới" } : item));
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === activeConversationId
+              ? { ...item, title: message.slice(0, 80) || "Cuộc trò chuyện mới" }
+              : item,
+          ),
+        );
       }
-
-      setMessages((current) => [...current, { role: "model", text: assistantText }]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ AI.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không thể nhận phản hồi từ Study Assistant.",
+      );
       setMessages(previousMessages);
     } finally {
       setLoading(false);
