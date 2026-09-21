@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Bot, BookOpen, Calculator, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User } from "lucide-react";
+import { Bot, BookOpen, Calculator, ImagePlus, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
@@ -14,7 +14,7 @@ import {
   updateUserDocument,
 } from "../../../../lib/firestore";
 
-type Message = { role: "user" | "model"; text: string };
+type Message = { role: "user" | "model"; text: string; image?: { data: string; mimeType: string } };\ntype ImageAttachment = { data: string; mimeType: string; name: string };\n\nconst MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
@@ -34,7 +34,7 @@ export default function StudyAssistantPage() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt?: unknown; updatedAt?: unknown }>>([]);
   const hasMessages = messages.length > 0;
-  const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
+  const canSend = useMemo(() => (input.trim().length > 0 || !!image) && !loading, [input, image, loading]);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (user) => {
@@ -94,19 +94,25 @@ export default function StudyAssistantPage() {
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
     const message = input.trim();
-    if (!message || loading) return;
+    if ((!message && !image) || loading) return;
 
+    const attachment = image;
     const previousMessages = messages;
+    const displayMessage = message || "Hãy phân tích ảnh này và giúp mình.";
     setInput("");
+    setImage(null);
     setError("");
-    setMessages((current) => [...current, { role: "user", text: message }]);
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: displayMessage, ...(attachment ? { image: attachment } : {}) },
+    ]);
     setLoading(true);
 
     try {
       const response = await fetch("/api/ai/study-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history: previousMessages }),
+        body: JSON.stringify({ message, history: previousMessages, image: attachment ? { data: attachment.data, mimeType: attachment.mimeType } : undefined }),
       });
 
       if (!response.ok || !response.body) {
@@ -180,25 +186,25 @@ export default function StudyAssistantPage() {
         if (!activeConversationId) {
           const created = await createAIConversation(user.uid, {
             type: "study-assistant",
-            title: message.slice(0, 80) || "Cuộc trò chuyện mới",
+            title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
           });
           activeConversationId = created.id;
           setConversationId(activeConversationId);
           setConversations((current) => [
-            { id: activeConversationId, title: message.slice(0, 80) || "Cuộc trò chuyện mới" },
+            { id: activeConversationId, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" },
             ...current.filter((item) => item.id !== activeConversationId),
           ]);
         }
 
-        await addAIMessage(user.uid, activeConversationId, { role: "user", text: message });
+        await addAIMessage(user.uid, activeConversationId, { role: "user", text: displayMessage });
         await addAIMessage(user.uid, activeConversationId, { role: "model", text: assistantText });
         await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
-          title: message.slice(0, 80) || "Cuộc trò chuyện mới",
+          title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
         });
         setConversations((current) =>
           current.map((item) =>
             item.id === activeConversationId
-              ? { ...item, title: message.slice(0, 80) || "Cuộc trò chuyện mới" }
+              ? { ...item, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" }
               : item,
           ),
         );
@@ -297,7 +303,7 @@ export default function StudyAssistantPage() {
               <div className="mx-auto max-w-3xl space-y-5">
                 {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : message.text}</div>
+                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && <img src={`data:${message.image.mimeType};base64,${message.image.data}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" />}<span>{message.text}</span></>}</div>
                   {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                 </div>)}
                 {loading && <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div><div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500 dark:bg-[#333333] dark:text-gray-300">Đang suy nghĩ…</div></div>}
@@ -307,11 +313,37 @@ export default function StudyAssistantPage() {
 
           <div className="border-t border-gray-200 p-3 dark:border-gray-600 sm:p-4">
             {error && <div className="mx-auto mb-3 max-w-3xl rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
-            <form onSubmit={sendMessage} className="mx-auto flex max-w-3xl items-end gap-2">
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập câu hỏi của bạn…" rows={1} className="max-h-36 min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" disabled={loading || loadingHistory} />
-              <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
+            <form onSubmit={sendMessage} className="mx-auto max-w-3xl">
+              {image && (
+                <div className="mb-3 flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                  <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh chuẩn bị gửi" className="h-16 w-16 rounded-lg object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{image.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích.</p>
+                  </div>
+                  <button type="button" onClick={() => setImage(null)} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <label className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-gray-300 bg-white text-indigo-600 transition hover:border-indigo-400 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-indigo-300 dark:hover:bg-indigo-500/10" title="Thêm ảnh">
+                  <ImagePlus size={20} />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading || loadingHistory} onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    try {
+                      setError("");
+                      setImage(await readImage(file));
+                    } catch (error) {
+                      setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
+                    }
+                  }} />
+                </label>
+                <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập câu hỏi hoặc thêm ảnh…" rows={1} className="max-h-36 min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" disabled={loading || loadingHistory} />
+                <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
+              </div>
             </form>
-            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><MessageSquare size={12} /> Enter để gửi · Shift + Enter để xuống dòng</p>
+            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB · Enter để gửi</p>
           </div>
         </section>
         </div>
