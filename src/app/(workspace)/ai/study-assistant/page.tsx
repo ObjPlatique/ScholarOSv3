@@ -3,8 +3,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Bot, BookOpen, Calculator, ImagePlus, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
-import { auth } from "../../../../lib/firebase";
+import { auth, storage } from "../../../../lib/firebase";
 import {
   addAIMessage,
   createAIConversation,
@@ -14,7 +15,7 @@ import {
   updateUserDocument,
 } from "../../../../lib/firestore";
 
-type Message = { role: "user" | "model"; text: string; image?: { data: string; mimeType: string } };
+type Message = { role: "user" | "model"; text: string; image?: { data?: string; url?: string; mimeType: string } };
 type ImageAttachment = { data: string; mimeType: string; name: string };
 
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -89,6 +90,15 @@ async function loadImageDraft(): Promise<ImageAttachment | null> {
   return value;
 }
 
+
+async function uploadStudyImage(uid: string, conversationId: string, image: ImageAttachment) {
+  const binary = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
+  const blob = new Blob([binary], { type: image.mimeType });
+  const imageRef = storageRef(storage, `users/${uid}/aiConversations/${conversationId}/${crypto.randomUUID()}-${image.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
+  await uploadBytes(imageRef, blob, { contentType: image.mimeType });
+  return getDownloadURL(imageRef);
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -122,7 +132,7 @@ export default function StudyAssistantPage() {
         if (latest) {
           const stored = await listAIMessages(user.uid, latest.id);
           setConversationId(latest.id);
-          setMessages(stored.map((item) => ({ role: item.role, text: item.text })));
+          setMessages(stored.map((item) => ({ role: item.role, text: item.text, ...(item.imageUrl ? { image: { url: item.imageUrl, mimeType: item.imageMimeType || "image/jpeg" } } : {}) })));
         }
       } catch {
         setError("Không thể tải lịch sử hội thoại.");
@@ -140,7 +150,7 @@ export default function StudyAssistantPage() {
     try {
       const stored = await listAIMessages(user.uid, id);
       setConversationId(id);
-      setMessages(stored.map((item) => ({ role: item.role, text: item.text })));
+      setMessages(stored.map((item) => ({ role: item.role, text: item.text, ...(item.imageUrl ? { image: { url: item.imageUrl, mimeType: item.imageMimeType || "image/jpeg" } } : {}) })));
       setInput("");
     } catch {
       setError("Không thể mở cuộc trò chuyện.");
@@ -262,7 +272,15 @@ export default function StudyAssistantPage() {
           ]);
         }
 
-        await addAIMessage(user.uid, activeConversationId, { role: "user", text: displayMessage });
+        let imageUrl: string | undefined;
+        if (attachment) {
+          imageUrl = await uploadStudyImage(user.uid, activeConversationId, attachment);
+        }
+        await addAIMessage(user.uid, activeConversationId, {
+          role: "user",
+          text: displayMessage,
+          ...(imageUrl ? { imageUrl, imageMimeType: attachment?.mimeType } : {}),
+        });
         await addAIMessage(user.uid, activeConversationId, { role: "model", text: assistantText });
         await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
           title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
@@ -369,7 +387,7 @@ export default function StudyAssistantPage() {
               <div className="mx-auto max-w-3xl space-y-5">
                 {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && <img src={`data:${message.image.mimeType};base64,${message.image.data}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" />}<span>{message.text}</span></>}</div>
+                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && <img src={message.image.url || `data:${message.image.mimeType};base64,${message.image.data || ""}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" />}<span>{message.text}</span></>}</div>
                   {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                 </div>)}
                 {loading && <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div><div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500 dark:bg-[#333333] dark:text-gray-300">Đang suy nghĩ…</div></div>}
