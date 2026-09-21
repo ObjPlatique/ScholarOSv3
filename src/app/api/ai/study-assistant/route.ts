@@ -59,7 +59,7 @@ export async function POST(request: Request) {
         system_instruction: SYSTEM_INSTRUCTION,
         stream: true,
         generation_config: {
-          max_output_tokens: 700,
+          max_output_tokens: 4000,
           thinking_level: "minimal",
         },
       }),
