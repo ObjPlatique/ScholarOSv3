@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, Sparkles, Target } from "lucide-react";
+import { CheckCircle2, ImagePlus, Loader2, Sparkles, Target, X } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
 import { createUserDocument } from "../../../../lib/firestore";
 
-type Result = {
+type ImageAttachment = { data: string; mimeType: string; name: string };\nconst MAX_IMAGE_BYTES = 6 * 1024 * 1024;\n\nfunction readImage(file: File): Promise<ImageAttachment> {\n  return new Promise((resolve, reject) => {\n    if (!/^image\\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }\n    if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB.")); return; }\n    const reader = new FileReader();\n    reader.onload = () => {\n      const result = typeof reader.result === "string" ? reader.result : "";\n      const commaIndex = result.indexOf(",");\n      if (commaIndex < 0) { reject(new Error("Không thể đọc ảnh.")); return; }\n      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });\n    };\n    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));\n    reader.readAsDataURL(file);\n  });\n}\n\ntype Result = {
   score: number; verdict: string; feedback: string; strengths: string[];
   mistakes: string[]; suggestions: string[]; referenceAnswer: string;
 };
@@ -16,7 +16,7 @@ export default function AnswerGraderPage() {
   const [question, setQuestion] = useState("");
   const [expectedAnswer, setExpectedAnswer] = useState("");
   const [rubric, setRubric] = useState("");
-  const [studentAnswer, setStudentAnswer] = useState("");
+  const [studentAnswer, setStudentAnswer] = useState("");\n  const [image, setImage] = useState<ImageAttachment | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,7 +31,7 @@ export default function AnswerGraderPage() {
       const response = await fetch("/api/ai/answer-grader", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer }),
+        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer, image: image ? { data: image.data, mimeType: image.mimeType } : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể chấm bài.");
@@ -82,6 +82,37 @@ export default function AnswerGraderPage() {
               <label className="block text-sm font-medium">Câu trả lời *
                 <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời của bạn..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
+              <div className="rounded-xl border border-dashed border-gray-300 p-3 dark:border-gray-600">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold"><ImagePlus size={17} /> Ảnh đề / bài làm</div>
+                  {image && <button type="button" onClick={() => setImage(null)} disabled={loading} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-[#333333]" aria-label="Xóa ảnh"><X size={16} /></button>}
+                </div>
+                {image ? (
+                  <div className="flex items-center gap-3">
+                    <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh bài làm" className="h-20 w-20 rounded-lg object-cover" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{image.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-300">AI sẽ đọc ảnh khi chấm bài.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 dark:bg-[#333333] dark:text-gray-200 dark:hover:bg-indigo-500/10">
+                    <ImagePlus size={18} /> Thêm ảnh
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      try {
+                        setError("");
+                        setImage(await readImage(file));
+                      } catch (error) {
+                        setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
+                      }
+                    }} />
+                  </label>
+                )}
+                <p className="mt-2 text-xs text-gray-400">JPG, PNG, WebP · tối đa 6 MB · ảnh chỉ dùng cho lần chấm này.</p>
+              </div>
               <button onClick={gradeAnswer} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                 {loading ? <><Loader2 size={18} className="animate-spin"/> Đang chấm...</> : <><Sparkles size={18}/> Chấm bài</>}
               </button>
