@@ -81,12 +81,18 @@ Chấm trên thang 10. Không chỉ so khớp từ khóa; hãy xét ý nghĩa, l
 Trả JSON đúng schema. feedback ngắn gọn nhưng cụ thể. strengths/mistakes/suggestions là các gạch đầu dòng ngắn.
 referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh đối chiếu.`;
 
+    const input: Array<Record<string, string>> = [];
+    if (imageData) {
+      input.push({ type: "image", data: imageData.data, mime_type: imageData.mimeType });
+    }
+    input.push({ type: "text", text: prompt });
+
     const response = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         model: MODEL,
-        input: prompt,
+        input,
         generation_config: { max_output_tokens: 1400, thinking_level: "minimal" },
         response_format: {
           type: "text",
