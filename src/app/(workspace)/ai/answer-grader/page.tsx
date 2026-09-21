@@ -6,7 +6,26 @@ import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
 import { createUserDocument } from "../../../../lib/firestore";
 
-type ImageAttachment = { data: string; mimeType: string; name: string };\nconst MAX_IMAGE_BYTES = 6 * 1024 * 1024;\n\nfunction readImage(file: File): Promise<ImageAttachment> {\n  return new Promise((resolve, reject) => {\n    if (!/^image\\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }\n    if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB.")); return; }\n    const reader = new FileReader();\n    reader.onload = () => {\n      const result = typeof reader.result === "string" ? reader.result : "";\n      const commaIndex = result.indexOf(",");\n      if (commaIndex < 0) { reject(new Error("Không thể đọc ảnh.")); return; }\n      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });\n    };\n    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));\n    reader.readAsDataURL(file);\n  });\n}\n\ntype Result = {
+type ImageAttachment = { data: string; mimeType: string; name: string };
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+
+function readImage(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }
+    if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB.")); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      if (commaIndex < 0) { reject(new Error("Không thể đọc ảnh.")); return; }
+      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });
+    };
+    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));
+    reader.readAsDataURL(file);
+  });
+}
+
+type Result = {
   score: number; verdict: string; feedback: string; strengths: string[];
   mistakes: string[]; suggestions: string[]; referenceAnswer: string;
 };
@@ -16,7 +35,8 @@ export default function AnswerGraderPage() {
   const [question, setQuestion] = useState("");
   const [expectedAnswer, setExpectedAnswer] = useState("");
   const [rubric, setRubric] = useState("");
-  const [studentAnswer, setStudentAnswer] = useState("");\n  const [image, setImage] = useState<ImageAttachment | null>(null);
+  const [studentAnswer, setStudentAnswer] = useState("");
+  const [image, setImage] = useState<ImageAttachment | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
