@@ -14,7 +14,10 @@ import {
   updateUserDocument,
 } from "../../../../lib/firestore";
 
-type Message = { role: "user" | "model"; text: string; image?: { data: string; mimeType: string } };\ntype ImageAttachment = { data: string; mimeType: string; name: string };\n\nconst MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+type Message = { role: "user" | "model"; text: string; image?: { data: string; mimeType: string } };
+type ImageAttachment = { data: string; mimeType: string; name: string };
+
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
