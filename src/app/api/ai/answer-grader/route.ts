@@ -68,7 +68,8 @@ export async function POST(request: Request) {
       expectedAnswer?: unknown;
       studentAnswer?: unknown;
       rubric?: unknown;
-      image?: unknown;
+      questionImage?: unknown;
+      answerImage?: unknown;
     };
 
     const subject = typeof body.subject === "string" ? body.subject.trim() : "";
@@ -76,17 +77,18 @@ export async function POST(request: Request) {
     const expectedAnswer = typeof body.expectedAnswer === "string" ? body.expectedAnswer.trim() : "";
     const studentAnswer = typeof body.studentAnswer === "string" ? body.studentAnswer.trim() : "";
     const rubric = typeof body.rubric === "string" ? body.rubric.trim() : "";
-    const image = validImage(body.image);
+    const questionImage = validImage(body.questionImage);
+    const answerImage = validImage(body.answerImage);
 
-    if (!question && !image) {
-      return NextResponse.json({ error: "Cần có câu hỏi hoặc ảnh đề bài." }, { status: 400 });
+    if (!question && !questionImage) {
+      return NextResponse.json({ error: "Cần có câu hỏi bằng văn bản hoặc ảnh chứa câu hỏi." }, { status: 400 });
     }
-    if (!studentAnswer && !image) {
-      return NextResponse.json({ error: "Cần có câu trả lời hoặc ảnh bài làm." }, { status: 400 });
+    if (!studentAnswer && !answerImage) {
+      return NextResponse.json({ error: "Cần có câu trả lời bằng văn bản hoặc ảnh chứa câu trả lời." }, { status: 400 });
     }
-    if (body.image && !image) {
+    if ((body.questionImage && !questionImage) || (body.answerImage && !answerImage)) {
       return NextResponse.json(
-        { error: "Ảnh không hợp lệ. Chỉ hỗ trợ JPG, PNG hoặc WebP và ảnh phải nhỏ hơn 6 MB." },
+        { error: "Ảnh không hợp lệ. Chỉ hỗ trợ JPG, PNG hoặc WebP và mỗi ảnh phải nhỏ hơn 6 MB." },
         { status: 400 },
       );
     }
@@ -106,7 +108,7 @@ ${rubric || "Đánh giá độ chính xác, lập luận, mức độ đầy đ�
 Câu trả lời của học sinh:
 ${studentAnswer || "Hãy đọc bài làm từ ảnh đính kèm."}
 
-Nếu có ảnh, hãy đọc chính xác đề bài và/hoặc bài làm trong ảnh rồi kết hợp với phần văn bản.
+Nếu có ảnh, ảnh đầu tiên (nếu có) chứa câu hỏi và ảnh thứ hai (nếu có) chứa câu trả lời của học sinh. Hãy đọc chính xác từng ảnh và kết hợp với phần văn bản tương ứng.
 Nếu ảnh mờ hoặc không đủ thông tin, nêu rõ phần không chắc chắn và không tự bịa nội dung.
 
 Chấm trên thang 10. Không chỉ so khớp từ khóa; hãy xét ý nghĩa, lập luận và mức độ đúng.
@@ -114,8 +116,11 @@ Trả JSON đúng schema. feedback ngắn gọn nhưng cụ thể. strengths/mis
 referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh đối chiếu.`;
 
     const input: Array<Record<string, string>> = [];
-    if (image) {
-      input.push({ type: "image", data: image.data, mime_type: image.mimeType });
+    if (questionImage) {
+      input.push({ type: "image", data: questionImage.data, mime_type: questionImage.mimeType });
+    }
+    if (answerImage) {
+      input.push({ type: "image", data: answerImage.data, mime_type: answerImage.mimeType });
     }
     input.push({ type: "text", text: prompt });
 
