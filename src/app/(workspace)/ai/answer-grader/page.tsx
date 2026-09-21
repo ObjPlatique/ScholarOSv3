@@ -11,7 +11,7 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 function readImage(file: File): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
-    if (!/^image\\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }
     if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB.")); return; }
     const reader = new FileReader();
     reader.onload = () => {
