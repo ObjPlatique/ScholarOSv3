@@ -18,6 +18,9 @@ type Message = { role: "user" | "model"; text: string; image?: { data: string; m
 type ImageAttachment = { data: string; mimeType: string; name: string };
 
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+const IMAGE_DB_NAME = "scholaros-image-drafts";
+const IMAGE_STORE_NAME = "drafts";
+const IMAGE_DRAFT_KEY = "study-assistant-pending-image";
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
@@ -53,6 +56,39 @@ function readImage(file: File): Promise<ImageAttachment> {
   });
 }
 
+
+function openImageDraftDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(IMAGE_DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(IMAGE_STORE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveImageDraft(image: ImageAttachment | null) {
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(IMAGE_STORE_NAME, "readwrite");
+    tx.objectStore(IMAGE_STORE_NAME).put(image, IMAGE_DRAFT_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function loadImageDraft(): Promise<ImageAttachment | null> {
+  const db = await openImageDraftDb();
+  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+    const tx = db.transaction(IMAGE_STORE_NAME, "readonly");
+    const request = tx.objectStore(IMAGE_STORE_NAME).get(IMAGE_DRAFT_KEY);
+    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return value;
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -66,6 +102,7 @@ export default function StudyAssistantPage() {
   const canSend = useMemo(() => (input.trim().length > 0 || !!image) && !loading, [input, image, loading]);
 
   useEffect(() => {
+    void loadImageDraft().then(setImage).catch(() => undefined);
     return onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setLoadingHistory(false);
@@ -350,7 +387,7 @@ export default function StudyAssistantPage() {
                     <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{image.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích.</p>
                   </div>
-                  <button type="button" onClick={() => setImage(null)} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
+                  <button type="button" onClick={() => { setImage(null); void saveImageDraft(null).catch(() => undefined); }} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
                 </div>
               )}
               <div className="flex items-end gap-2">
@@ -362,7 +399,9 @@ export default function StudyAssistantPage() {
                     if (!file) return;
                     try {
                       setError("");
-                      setImage(await readImage(file));
+                      const nextImage = await readImage(file);
+                      setImage(nextImage);
+                      void saveImageDraft(nextImage).catch(() => undefined);
                     } catch (error) {
                       setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
                     }
