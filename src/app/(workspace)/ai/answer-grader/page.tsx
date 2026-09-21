@@ -91,21 +91,28 @@ export default function AnswerGraderPage() {
               <label className="block text-sm font-medium">Môn học
                 <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Ví dụ: Ngữ văn, Toán..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
-              <label className="block text-sm font-medium">Câu hỏi *
-                <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-              </label>
+              <div className="block text-sm font-medium">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Câu hỏi *</span>
+                  <ImageUploadButton image={questionImage} setImage={setQuestionImage} loading={loading} setError={setError} label="Thêm ảnh câu hỏi" />
+                </div>
+                <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài hoặc thêm ảnh chứa câu hỏi..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
+                {questionImage && <ImagePreview image={questionImage} setImage={setQuestionImage} loading={loading} />}
+              </div>
               <label className="block text-sm font-medium">Đáp án tham khảo
                 <textarea value={expectedAnswer} onChange={e=>setExpectedAnswer(e.target.value)} rows={4} placeholder="Có thể để trống để AI tự đánh giá..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
               <label className="block text-sm font-medium">Tiêu chí chấm
                 <textarea value={rubric} onChange={e=>setRubric(e.target.value)} rows={3} placeholder="Ví dụ: đúng ý 4đ, lập luận 3đ, trình bày 3đ..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
-              <label className="block text-sm font-medium">Câu trả lời *
-                <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời của bạn..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-              </label>
-              <ImageField label="Ảnh chứa câu hỏi" image={questionImage} setImage={setQuestionImage} loading={loading} setError={setError} />
-              <ImageField label="Ảnh chứa câu trả lời" image={answerImage} setImage={setAnswerImage} loading={loading} setError={setError} />
-              <p className="text-xs text-gray-400">Bạn có thể nhập văn bản, dùng ảnh, hoặc kết hợp cả hai cho từng phần.</p>
+              <div className="block text-sm font-medium">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Câu trả lời *</span>
+                  <ImageUploadButton image={answerImage} setImage={setAnswerImage} loading={loading} setError={setError} label="Thêm ảnh câu trả lời" />
+                </div>
+                <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời hoặc thêm ảnh chứa câu trả lời..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
+                {answerImage && <ImagePreview image={answerImage} setImage={setAnswerImage} loading={loading} />}
+              </div>
               <button onClick={gradeAnswer} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                 {loading ? <><Loader2 size={18} className="animate-spin"/> Đang chấm...</> : <><Sparkles size={18}/> Chấm bài</>}
               </button>
@@ -145,23 +152,38 @@ export default function AnswerGraderPage() {
   );
 }
 
-function ImageField({ label, image, setImage, loading, setError }: { label: string; image: ImageAttachment | null; setImage: (image: ImageAttachment | null) => void; loading: boolean; setError: (error: string) => void }) {
-  return <div className="rounded-xl border border-dashed border-gray-300 p-3 dark:border-gray-600">
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 text-sm font-semibold"><ImagePlus size={17} /> {label}</div>
-      {image && <button type="button" onClick={() => setImage(null)} disabled={loading} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-[#333333]" aria-label="Xóa ảnh"><X size={16} /></button>}
-    </div>
-    {image ? <div className="flex items-center gap-3">
-      <img src={`data:${image.mimeType};base64,${image.data}`} alt={label} className="h-20 w-20 rounded-lg object-cover" />
-      <div className="min-w-0"><p className="truncate text-sm font-medium">{image.name}</p><p className="text-xs text-gray-500 dark:text-gray-300">AI sẽ đọc ảnh khi chấm bài.</p></div>
-    </div> : <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 dark:bg-[#333333] dark:text-gray-200 dark:hover:bg-indigo-500/10">
-      <ImagePlus size={18} /> Thêm ảnh
-      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} onChange={async (event) => {
-        const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
-        try { setError(""); setImage(await readImage(file)); } catch (error) { setError(error instanceof Error ? error.message : "Không thể đọc ảnh."); }
-      }} />
-    </label>}
-    <p className="mt-2 text-xs text-gray-400">JPG, PNG, WebP · tối đa 6 MB</p>
+function ImageUploadButton({ image, setImage, loading, setError, label }: {
+  image: ImageAttachment | null;
+  setImage: (image: ImageAttachment | null) => void;
+  loading: boolean;
+  setError: (error: string) => void;
+  label: string;
+}) {
+  return <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-600 transition hover:border-indigo-400 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+    <ImagePlus size={15} /> {image ? "Đổi ảnh" : "Thêm ảnh"}
+    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} aria-label={label} onChange={async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      try {
+        setError("");
+        setImage(await readImage(file));
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
+      }
+    }} />
+  </label>;
+}
+
+function ImagePreview({ image, setImage, loading }: {
+  image: ImageAttachment;
+  setImage: (image: ImageAttachment | null) => void;
+  loading: boolean;
+}) {
+  return <div className="mt-2 flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+    <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} className="h-14 w-14 rounded-md object-cover" />
+    <p className="min-w-0 flex-1 truncate text-xs text-gray-700 dark:text-gray-200">{image.name}</p>
+    <button type="button" onClick={() => setImage(null)} disabled={loading} aria-label="Xóa ảnh" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={15} /></button>
   </div>;
 }
 
