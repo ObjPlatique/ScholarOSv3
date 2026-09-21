@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, BookOpen, Calculator, ImagePlus, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
@@ -108,6 +108,7 @@ export default function StudyAssistantPage() {
   const [conversationId, setConversationId] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt?: unknown; updatedAt?: unknown }>>([]);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const hasMessages = messages.length > 0;
   const canSend = useMemo(() => (input.trim().length > 0 || !!image) && !loading, [input, image, loading]);
 
@@ -175,21 +176,80 @@ export default function StudyAssistantPage() {
     const attachment = image;
     const previousMessages = messages;
     const displayMessage = message || "Hãy phân tích ảnh này và giúp mình.";
+    const user = auth.currentUser;
+    if (!user) {
+      setError("Vui lòng đăng nhập để lưu hội thoại.");
+      return;
+    }
+
     setInput("");
     setImage(null);
+    void saveImageDraft(null).catch(() => undefined);
     setError("");
-    setMessages((current) => [
-      ...current,
-      { role: "user", text: displayMessage, ...(attachment ? { image: attachment } : {}) },
-    ]);
     setLoading(true);
 
     try {
-      const response = await fetch("/api/ai/study-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history: previousMessages, image: attachment ? { data: attachment.data, mimeType: attachment.mimeType } : undefined }),
+      // Save the conversation and user message BEFORE calling Gemini.
+      // Therefore a stalled/failed AI request cannot prevent saving the chat.
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        const created = await createAIConversation(user.uid, {
+          type: "study-assistant",
+          title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
+        });
+        activeConversationId = created.id;
+        setConversationId(activeConversationId);
+        setConversations((current) => [
+          { id: activeConversationId!, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" },
+          ...current.filter((item) => item.id !== activeConversationId),
+        ]);
+      }
+
+      let imageUrl: string | undefined;
+      if (attachment) {
+        imageUrl = await uploadStudyImage(user.uid, activeConversationId, attachment);
+      }
+
+      await addAIMessage(user.uid, activeConversationId, {
+        role: "user",
+        text: displayMessage,
+        ...(imageUrl ? { imageUrl, imageMimeType: attachment?.mimeType } : {}),
       });
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "user",
+          text: displayMessage,
+          ...(attachment ? {
+            image: imageUrl
+              ? { url: imageUrl, mimeType: attachment.mimeType }
+              : attachment,
+          } : {}),
+        },
+      ]);
+
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+
+      let response: Response;
+      try {
+        response = await fetch("/api/ai/study-assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            message,
+            history: previousMessages,
+            image: attachment
+              ? { data: attachment.data, mimeType: attachment.mimeType }
+              : undefined,
+          }),
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
 
       if (!response.ok || !response.body) {
         let errorMessage = "Study Assistant gặp lỗi.";
@@ -212,11 +272,8 @@ export default function StudyAssistantPage() {
         buffer = events.pop() || "";
 
         for (const event of events) {
-          const dataLine = event
-            .split(/\r?\n/)
-            .find((line) => line.startsWith("data:"));
+          const dataLine = event.split(/\r?\n/).find((line) => line.startsWith("data:"));
           if (!dataLine) continue;
-
           const raw = dataLine.slice(5).trim();
           if (!raw || raw === "[DONE]") continue;
 
@@ -226,12 +283,10 @@ export default function StudyAssistantPage() {
               error?: { message?: string };
               delta?: { type?: string; text?: string };
             };
-
             if (payload.event_type === "error") {
               streamError = payload.error?.message || "Study Assistant gặp lỗi.";
               continue;
             }
-
             if (payload.event_type === "step.delta" && payload.delta?.type === "text") {
               assistantText += payload.delta.text || "";
               setMessages((current) => [
@@ -240,7 +295,7 @@ export default function StudyAssistantPage() {
               ]);
             }
           } catch {
-            // Ignore incomplete SSE frames; the next chunk completes them.
+            // Ignore incomplete SSE frames.
           }
         }
       };
@@ -256,51 +311,30 @@ export default function StudyAssistantPage() {
       assistantText = formatAiText(assistantText);
       if (!assistantText) throw new Error("AI không trả về nội dung.");
 
-      const user = auth.currentUser;
-      if (user) {
-        let activeConversationId = conversationId;
-        if (!activeConversationId) {
-          const created = await createAIConversation(user.uid, {
-            type: "study-assistant",
-            title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
-          });
-          activeConversationId = created.id;
-          setConversationId(activeConversationId);
-          setConversations((current) => [
-            { id: activeConversationId, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" },
-            ...current.filter((item) => item.id !== activeConversationId),
-          ]);
-        }
-
-        let imageUrl: string | undefined;
-        if (attachment) {
-          imageUrl = await uploadStudyImage(user.uid, activeConversationId, attachment);
-        }
-        await addAIMessage(user.uid, activeConversationId, {
-          role: "user",
-          text: displayMessage,
-          ...(imageUrl ? { imageUrl, imageMimeType: attachment?.mimeType } : {}),
-        });
-        await addAIMessage(user.uid, activeConversationId, { role: "model", text: assistantText });
-        await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
-          title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
-        });
-        setConversations((current) =>
-          current.map((item) =>
-            item.id === activeConversationId
-              ? { ...item, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" }
-              : item,
-          ),
-        );
-      }
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Không thể nhận phản hồi từ Study Assistant.",
+      await addAIMessage(user.uid, activeConversationId, {
+        role: "model",
+        text: assistantText,
+      });
+      await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
+        title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
+      });
+      setConversations((current) =>
+        current.map((item) =>
+          item.id === activeConversationId
+            ? { ...item, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" }
+            : item,
+        ),
       );
-      setMessages(previousMessages);
+    } catch (requestError) {
+      const aborted = requestError instanceof DOMException && requestError.name === "AbortError";
+      if (aborted) {
+        setError("Yêu cầu AI đã được dừng. Tin nhắn của bạn vẫn được lưu.");
+      } else {
+        setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ Study Assistant.");
+      }
+      // Never roll back the user message: it was already persisted.
     } finally {
+      requestControllerRef.current = null;
       setLoading(false);
     }
   }
