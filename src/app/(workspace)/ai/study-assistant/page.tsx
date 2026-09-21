@@ -28,9 +28,35 @@ function formatAiText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function readImage(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP."));
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      if (commaIndex < 0) {
+        reject(new Error("Không thể đọc ảnh."));
+        return;
+      }
+      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });
+    };
+    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [image, setImage] = useState<ImageAttachment | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState("");
