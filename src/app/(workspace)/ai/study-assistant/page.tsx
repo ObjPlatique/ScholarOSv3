@@ -3,9 +3,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, BookOpen, Calculator, ImagePlus, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
-import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
-import { auth, storage } from "../../../../lib/firebase";
+import { auth } from "../../../../lib/firebase";
 import {
   addAIMessage,
   createAIConversation,
@@ -60,8 +59,16 @@ function readImage(file: File): Promise<ImageAttachment> {
 
 function openImageDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IMAGE_DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(IMAGE_STORE_NAME);
+    const request = indexedDB.open(IMAGE_DB_NAME, 2);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(IMAGE_STORE_NAME)) {
+        db.createObjectStore(IMAGE_STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains("sent-images")) {
+        db.createObjectStore("sent-images");
+      }
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -90,13 +97,63 @@ async function loadImageDraft(): Promise<ImageAttachment | null> {
   return value;
 }
 
+// Spark-safe image persistence:
+// Firebase Storage is intentionally NOT used. Sent images are kept in IndexedDB
+// on the same browser/device, while Firestore stores only a small mime-type marker.
+async function saveSentImage(messageId: string, image: ImageAttachment) {
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readwrite");
+    tx.objectStore("sent-images").put(image, messageId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
 
-async function uploadStudyImage(uid: string, conversationId: string, image: ImageAttachment) {
-  const binary = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
-  const blob = new Blob([binary], { type: image.mimeType });
-  const imageRef = storageRef(storage, `users/${uid}/aiConversations/${conversationId}/${crypto.randomUUID()}-${image.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
-  await uploadBytes(imageRef, blob, { contentType: image.mimeType });
-  return getDownloadURL(imageRef);
+async function loadSentImage(messageId: string): Promise<ImageAttachment | null> {
+  const db = await openImageDraftDb();
+  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readonly");
+    const request = tx.objectStore("sent-images").get(messageId);
+    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return value;
+}
+
+async function deleteSentImages(messageIds: string[]) {
+  if (messageIds.length === 0) return;
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readwrite");
+    const store = tx.objectStore("sent-images");
+    messageIds.forEach((id) => store.delete(id));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function hydrateMessages(
+  stored: Array<{ id: string; role: "user" | "model"; text: string; imageMimeType?: string }>,
+): Promise<Message[]> {
+  return Promise.all(
+    stored.map(async (item) => {
+      if (!item.imageMimeType) {
+        return { role: item.role, text: item.text };
+      }
+      const localImage = await loadSentImage(item.id).catch(() => null);
+      return {
+        role: item.role,
+        text: item.text,
+        image: localImage
+          ? { data: localImage.data, mimeType: localImage.mimeType }
+          : { mimeType: item.imageMimeType },
+      };
+    }),
+  );
 }
 
 export default function StudyAssistantPage() {
@@ -133,7 +190,7 @@ export default function StudyAssistantPage() {
         if (latest) {
           const stored = await listAIMessages(user.uid, latest.id);
           setConversationId(latest.id);
-          setMessages(stored.map((item) => ({ role: item.role, text: item.text, ...(item.imageUrl ? { image: { url: item.imageUrl, mimeType: item.imageMimeType || "image/jpeg" } } : {}) })));
+          setMessages(await hydrateMessages(stored));
         }
       } catch {
         setError("Không thể tải lịch sử hội thoại.");
@@ -145,13 +202,14 @@ export default function StudyAssistantPage() {
 
   async function openConversation(id: string) {
     const user = auth.currentUser;
-    if (!user || loading || id === conversationId) return;
+    if (!user || id === conversationId) return;
+    requestControllerRef.current?.abort();
     setLoading(true);
     setError("");
     try {
       const stored = await listAIMessages(user.uid, id);
       setConversationId(id);
-      setMessages(stored.map((item) => ({ role: item.role, text: item.text, ...(item.imageUrl ? { image: { url: item.imageUrl, mimeType: item.imageMimeType || "image/jpeg" } } : {}) })));
+      setMessages(await hydrateMessages(stored));
       setInput("");
     } catch {
       setError("Không thể mở cuộc trò chuyện.");
@@ -161,7 +219,7 @@ export default function StudyAssistantPage() {
   }
 
   function startNewConversation() {
-    if (loading) return;
+    requestControllerRef.current?.abort();
     setConversationId("");
     setMessages([]);
     setInput("");
@@ -205,27 +263,23 @@ export default function StudyAssistantPage() {
         ]);
       }
 
-      let imageUrl: string | undefined;
-      if (attachment) {
-        imageUrl = await uploadStudyImage(user.uid, activeConversationId, attachment);
-      }
-
-      await addAIMessage(user.uid, activeConversationId, {
+      const savedUserMessage = await addAIMessage(user.uid, activeConversationId, {
         role: "user",
         text: displayMessage,
-        ...(imageUrl ? { imageUrl, imageMimeType: attachment?.mimeType } : {}),
+        ...(attachment ? { imageMimeType: attachment.mimeType } : {}),
       });
+
+      if (attachment) {
+        // Persist the image locally on this browser/device. No Firebase Storage required.
+        await saveSentImage(savedUserMessage.id, attachment);
+      }
 
       setMessages((current) => [
         ...current,
         {
           role: "user",
           text: displayMessage,
-          ...(attachment ? {
-            image: imageUrl
-              ? { url: imageUrl, mimeType: attachment.mimeType }
-              : attachment,
-          } : {}),
+          ...(attachment ? { image: attachment } : {}),
         },
       ]);
 
@@ -347,7 +401,9 @@ export default function StudyAssistantPage() {
     setLoading(true);
     setError("");
     try {
+      const stored = await listAIMessages(user.uid, conversationId);
       await deleteAIConversation(user.uid, conversationId);
+      await deleteSentImages(stored.map((item) => item.id)).catch(() => undefined);
       setConversationId("");
       setMessages([]);
       setConversations((current) => current.filter((item) => item.id !== conversationId));
@@ -421,7 +477,7 @@ export default function StudyAssistantPage() {
               <div className="mx-auto max-w-3xl space-y-5">
                 {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && <img src={message.image.url || `data:${message.image.mimeType};base64,${message.image.data || ""}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" />}<span>{message.text}</span></>}</div>
+                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && (message.image.data || message.image.url ? <img src={message.image.url || `data:${message.image.mimeType};base64,${message.image.data || ""}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" /> : <div className="mb-3 rounded-xl border border-white/30 px-3 py-2 text-xs opacity-80">Ảnh đã gửi trước đó · chỉ lưu trên thiết bị này</div>)}<span>{message.text}</span></>}</div>
                   {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                 </div>)}
                 {loading && <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div><div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500 dark:bg-[#333333] dark:text-gray-300">Đang suy nghĩ…</div></div>}
@@ -437,7 +493,7 @@ export default function StudyAssistantPage() {
                   <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh chuẩn bị gửi" className="h-16 w-16 rounded-lg object-cover" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{image.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích.</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích và lưu cục bộ trên thiết bị này.</p>
                   </div>
                   <button type="button" onClick={() => { setImage(null); void saveImageDraft(null).catch(() => undefined); }} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
                 </div>
@@ -463,7 +519,7 @@ export default function StudyAssistantPage() {
                 <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
               </div>
             </form>
-            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB · Enter để gửi</p>
+            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB · ảnh đã gửi lưu cục bộ trên thiết bị này</p>
           </div>
         </section>
         </div>
