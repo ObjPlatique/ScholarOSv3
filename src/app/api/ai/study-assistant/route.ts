@@ -51,6 +51,11 @@ export async function POST(request: Request) {
     );
   }
 
+  // Build Headers after the runtime check so TypeScript knows the API key is a string.
+  const geminiHeaders = new Headers();
+  geminiHeaders.set("Content-Type", "application/json");
+  geminiHeaders.set("x-goog-api-key", apiKey);
+
   try {
     const body = (await request.json()) as {
       message?: unknown;
@@ -93,10 +98,7 @@ export async function POST(request: Request) {
     async function callModel(model: string) {
       return fetch(API_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
+        headers: geminiHeaders,
         body: JSON.stringify({
           model,
           input,
