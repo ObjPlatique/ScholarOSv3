@@ -270,8 +270,8 @@ export default function StudyAssistantPage() {
       });
 
       if (attachment) {
-        // Persist the image locally on this browser/device. No Firebase Storage required.
-        await saveSentImage(savedUserMessage.id, attachment);
+        // Persist locally when IndexedDB is available, but never block the AI request if it fails.
+        await saveSentImage(savedUserMessage.id, attachment).catch(() => undefined);
       }
 
       setMessages((current) => [
