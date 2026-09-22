@@ -295,7 +295,9 @@ export default function StudyAssistantPage() {
           signal: controller.signal,
           body: JSON.stringify({
             message,
-            history: previousMessages,
+            // Do not resend old image base64 data. Gemini only needs the text history;
+            // the current image is sent separately below.
+            history: previousMessages.map(({ role, text }) => ({ role, text })),
             image: attachment
               ? { data: attachment.data, mimeType: attachment.mimeType }
               : undefined,
