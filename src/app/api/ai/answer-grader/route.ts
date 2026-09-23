@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const MODEL = process.env.GEMINI_GRADER_MODEL || "gemini-3.5-flash-lite";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 2_400_000;
 
 type GradingResult = {
   score: number;
@@ -21,7 +21,8 @@ type ResponseData = {
 };
 
 type ImageInput = { data: string; mimeType: string };
-const MAX_IMAGES_PER_GROUP = 8;
+const MAX_IMAGES_PER_GROUP = 3;
+const MAX_TOTAL_IMAGES = 3;
 
 function extractText(data: ResponseData) {
   return data.steps?.filter((step) => step.type === "model_output")
@@ -97,8 +98,8 @@ export async function POST(request: Request) {
     if (!studentAnswer && answerImages.length === 0) {
       return NextResponse.json({ error: "Cần có câu trả lời bằng văn bản hoặc ít nhất một ảnh chứa câu trả lời." }, { status: 400 });
     }
-    if (questionImages.length > MAX_IMAGES_PER_GROUP || answerImages.length > MAX_IMAGES_PER_GROUP) {
-      return NextResponse.json({ error: `Mỗi phần chỉ được gửi tối đa ${MAX_IMAGES_PER_GROUP} ảnh.` }, { status: 400 });
+    if (questionImages.length > MAX_IMAGES_PER_GROUP || answerImages.length > MAX_IMAGES_PER_GROUP || questionImages.length + answerImages.length > MAX_TOTAL_IMAGES) {
+      return NextResponse.json({ error: `Mỗi lần chấm chỉ được gửi tối đa ${MAX_TOTAL_IMAGES} ảnh.` }, { status: 400 });
     }
     const questionImageCount = Array.isArray(body.questionImages) ? body.questionImages.length : body.questionImage ? 1 : 0;
     const answerImageCount = Array.isArray(body.answerImages) ? body.answerImages.length : body.answerImage ? 1 : 0;
