@@ -140,6 +140,12 @@ referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh �
     });
     input.push({ type: "text", text: prompt });
 
+    // Interactions API accepts multiple image content blocks in one input array.
+    // Keep text last so the model sees the complete visual context before the instruction.
+    if (input.filter((item) => item.type === "image").length > 1) {
+      console.info("[AI] multi-image request", { imageCount: input.filter((item) => item.type === "image").length });
+    }
+
     const response = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
@@ -170,7 +176,13 @@ referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh �
     });
 
     const data = await response.json() as ResponseData;
-    if (!response.ok) return NextResponse.json({ error: data.error?.message || "Gemini không thể chấm bài." }, { status: 502 });
+    if (!response.ok) {
+      console.error("[AI] Gemini request failed", { status: response.status, error: data.error?.message });
+      return NextResponse.json(
+        { error: data.error?.message || `Gemini từ chối yêu cầu (HTTP ${response.status}).` },
+        { status: 502 },
+      );
+    }
     if (data.status === "incomplete") return NextResponse.json({ error: "AI chưa hoàn tất việc chấm bài. Vui lòng thử lại." }, { status: 502 });
 
     const text = extractText(data);
