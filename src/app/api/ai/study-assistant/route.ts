@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-3.5-flash-lite";
 const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 2_400_000;
 
 const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS.
 Trả lời bằng tiếng Việt nếu người dùng dùng tiếng Việt.
@@ -14,7 +14,7 @@ Nếu ảnh không rõ hoặc thiếu thông tin, nói rõ thay vì đoán.
 
 type HistoryItem = { role: "user" | "model"; text: string };
 type ImageInput = { data: string; mimeType: string };
-const MAX_IMAGES = 8;
+const MAX_IMAGES = 3;
 
 function validHistory(value: unknown): HistoryItem[] {
   return Array.isArray(value)
