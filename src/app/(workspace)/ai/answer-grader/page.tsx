@@ -8,8 +8,9 @@ import { createUserDocument } from "../../../../lib/firestore";
 
 type ImageAttachment = { data: string; mimeType: string; name: string };
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const MAX_IMAGES_PER_GROUP = 8;
-const MAX_IMAGE_PAYLOAD_CHARS = 3_600_000;
+const MAX_IMAGES_PER_GROUP = 3;
+const MAX_TOTAL_IMAGES = 3;
+const MAX_IMAGE_PAYLOAD_CHARS = 2_000_000;
 
 function readImage(file: File): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
@@ -96,7 +97,7 @@ export default function AnswerGraderPage() {
               <div className="block text-sm font-medium">
                 <div className="flex items-center justify-between gap-2">
                   <span>Câu hỏi *</span>
-                  <ImageUploadButton images={questionImages} setImages={setQuestionImages} loading={loading} setError={setError} label="Thêm ảnh câu hỏi" />
+                  <ImageUploadButton images={questionImages} otherImageCount={answerImages.length} setImages={setQuestionImages} loading={loading} setError={setError} label="Thêm ảnh câu hỏi" />
                 </div>
                 <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài hoặc thêm ảnh chứa câu hỏi..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
                 {questionImages.length > 0 && <ImagePreview images={questionImages} setImages={setQuestionImages} loading={loading} />}
@@ -110,7 +111,7 @@ export default function AnswerGraderPage() {
               <div className="block text-sm font-medium">
                 <div className="flex items-center justify-between gap-2">
                   <span>Câu trả lời *</span>
-                  <ImageUploadButton images={answerImages} setImages={setAnswerImages} loading={loading} setError={setError} label="Thêm ảnh câu trả lời" />
+                  <ImageUploadButton images={answerImages} otherImageCount={questionImages.length} setImages={setAnswerImages} loading={loading} setError={setError} label="Thêm ảnh câu trả lời" />
                 </div>
                 <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời hoặc thêm ảnh chứa câu trả lời..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
                 {answerImages.length > 0 && <ImagePreview images={answerImages} setImages={setAnswerImages} loading={loading} />}
@@ -160,14 +161,14 @@ function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<
     const source = new Image();
     source.onload = () => {
       const canvas = document.createElement("canvas");
-      const maxDimension = 2400;
+      const maxDimension = 1600;
       const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
       canvas.width = Math.max(640, Math.round(source.naturalWidth * scale));
       canvas.height = Math.max(640, Math.round(source.naturalHeight * scale));
       const context = canvas.getContext("2d");
       if (!context) { reject(new Error("Không thể xử lý ảnh trên trình duyệt.")); return; }
       context.drawImage(source, 0, 0, canvas.width, canvas.height);
-      let quality = 0.82;
+      let quality = 0.72;
       let output = "";
       for (let attempt = 0; attempt < 7; attempt += 1) {
         output = canvas.toDataURL("image/webp", quality);
@@ -178,7 +179,7 @@ function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<
           return;
         }
         quality = Math.max(0.35, quality - 0.1);
-        if (attempt === 2) {
+        if (attempt === 1) {
           const resizeScale = Math.sqrt(maxBase64Chars / Math.max(data.length, 1));
           canvas.width = Math.max(640, Math.round(canvas.width * resizeScale));
           canvas.height = Math.max(640, Math.round(canvas.height * resizeScale));
@@ -198,8 +199,9 @@ async function fitImagesToRequest(images: ImageAttachment[], maxTotalBase64Chars
   return Promise.all(images.map((image) => compressImage(image, perImageLimit)));
 }
 
-function ImageUploadButton({ images, setImages, loading, setError, label }: {
+function ImageUploadButton({ images, otherImageCount, setImages, loading, setError, label }: {
   images: ImageAttachment[];
+  otherImageCount: number;
   setImages: (images: ImageAttachment[]) => void;
   loading: boolean;
   setError: (error: string) => void;
@@ -213,8 +215,8 @@ function ImageUploadButton({ images, setImages, loading, setError, label }: {
       if (!files.length) return;
       try {
         setError("");
-        if (images.length + files.length > MAX_IMAGES_PER_GROUP) {
-          throw new Error(`Mỗi phần chỉ có thể thêm tối đa ${MAX_IMAGES_PER_GROUP} ảnh.`);
+        if (images.length + files.length > MAX_IMAGES_PER_GROUP || images.length + otherImageCount + files.length > MAX_TOTAL_IMAGES) {
+          throw new Error(`Mỗi lần chấm chỉ có thể gửi tối đa ${MAX_TOTAL_IMAGES} ảnh.`);
         }
         const nextImages = [...images];
         for (const file of files) nextImages.push(await readImage(file));
@@ -241,7 +243,7 @@ function ImagePreview({ images, setImages, loading }: {
         </div>
       ))}
     </div>
-    <p className="mt-2 text-xs text-gray-500 dark:text-gray-300">{images.length}/{MAX_IMAGES_PER_GROUP} ảnh</p>
+    <p className="mt-2 text-xs text-gray-500 dark:text-gray-300">{images.length + otherImageCount}/{MAX_TOTAL_IMAGES} ảnh</p>
   </div>;
 }
 function ResultList({ title, items }: { title: string; items: string[] }) {
