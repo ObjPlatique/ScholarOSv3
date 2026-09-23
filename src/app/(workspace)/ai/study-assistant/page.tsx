@@ -263,16 +263,14 @@ export default function StudyAssistantPage() {
         ]);
       }
 
-      const savedUserMessage = await addAIMessage(user.uid, activeConversationId, {
+      // Start the AI request as soon as the conversation ID is known.
+      // Firestore persistence and IndexedDB image persistence run alongside it,
+      // so database writes no longer add a full round-trip before Gemini starts.
+      const userMessagePromise = addAIMessage(user.uid, activeConversationId, {
         role: "user",
         text: displayMessage,
         ...(attachment ? { imageMimeType: attachment.mimeType } : {}),
       });
-
-      if (attachment) {
-        // Persist locally when IndexedDB is available, but never block the AI request if it fails.
-        await saveSentImage(savedUserMessage.id, attachment).catch(() => undefined);
-      }
 
       setMessages((current) => [
         ...current,
