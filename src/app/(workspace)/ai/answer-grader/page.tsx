@@ -9,6 +9,7 @@ import { createUserDocument } from "../../../../lib/firestore";
 type ImageAttachment = { data: string; mimeType: string; name: string };
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGES_PER_GROUP = 8;
+const MAX_IMAGE_PAYLOAD_CHARS = 3_600_000;
 
 function readImage(file: File): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
@@ -153,6 +154,50 @@ export default function AnswerGraderPage() {
   );
 }
 
+function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<ImageAttachment> {
+  if (image.data.length <= maxBase64Chars) return Promise.resolve(image);
+  return new Promise((resolve, reject) => {
+    const source = new Image();
+    source.onload = () => {
+      const canvas = document.createElement("canvas");
+      const maxDimension = 2400;
+      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+      canvas.width = Math.max(640, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(640, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) { reject(new Error("Không thể xử lý ảnh trên trình duyệt.")); return; }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      let quality = 0.82;
+      let output = "";
+      for (let attempt = 0; attempt < 7; attempt += 1) {
+        output = canvas.toDataURL("image/webp", quality);
+        const commaIndex = output.indexOf(",");
+        const data = commaIndex >= 0 ? output.slice(commaIndex + 1) : "";
+        if (data.length <= maxBase64Chars) {
+          resolve({ data, mimeType: "image/webp", name: image.name });
+          return;
+        }
+        quality = Math.max(0.35, quality - 0.1);
+        if (attempt === 2) {
+          const resizeScale = Math.sqrt(maxBase64Chars / Math.max(data.length, 1));
+          canvas.width = Math.max(640, Math.round(canvas.width * resizeScale));
+          canvas.height = Math.max(640, Math.round(canvas.height * resizeScale));
+          context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        }
+      }
+      reject(new Error("Ảnh vẫn quá lớn sau khi tối ưu. Hãy chọn ảnh có kích thước nhỏ hơn."));
+    };
+    source.onerror = () => reject(new Error("Không thể xử lý ảnh."));
+    source.src = `data:${image.mimeType};base64,${image.data}`;
+  });
+}
+
+async function fitImagesToRequest(images: ImageAttachment[], maxTotalBase64Chars: number): Promise<ImageAttachment[]> {
+  if (images.length === 0) return [];
+  const perImageLimit = Math.floor(maxTotalBase64Chars / images.length);
+  return Promise.all(images.map((image) => compressImage(image, perImageLimit)));
+}
+
 function ImageUploadButton({ images, setImages, loading, setError, label }: {
   images: ImageAttachment[];
   setImages: (images: ImageAttachment[]) => void;
@@ -173,7 +218,8 @@ function ImageUploadButton({ images, setImages, loading, setError, label }: {
         }
         const nextImages = [...images];
         for (const file of files) nextImages.push(await readImage(file));
-        setImages(nextImages);
+        const optimizedImages = await fitImagesToRequest(nextImages, MAX_IMAGE_PAYLOAD_CHARS);
+        setImages(optimizedImages);
       } catch (error) {
         setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
       }
