@@ -272,6 +272,13 @@ export default function StudyAssistantPage() {
         ...(attachment ? { imageMimeType: attachment.mimeType } : {}),
       });
 
+      if (attachment) {
+        // Persist the image locally without delaying the Gemini request.
+        void userMessagePromise
+          .then((savedUserMessage) => saveSentImage(savedUserMessage.id, attachment))
+          .catch(() => undefined);
+      }
+
       setMessages((current) => [
         ...current,
         {
@@ -364,6 +371,9 @@ export default function StudyAssistantPage() {
       if (streamError) throw new Error(streamError);
       assistantText = formatAiText(assistantText);
       if (!assistantText) throw new Error("AI không trả về nội dung.");
+
+      // Ensure the user message is persisted before the assistant message is saved.
+      await userMessagePromise.catch(() => undefined);
 
       await addAIMessage(user.uid, activeConversationId, {
         role: "model",
