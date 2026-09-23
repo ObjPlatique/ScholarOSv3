@@ -1,10 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, Sparkles, Target } from "lucide-react";
+import { CheckCircle2, ImagePlus, Loader2, Sparkles, Target, X } from "lucide-react";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
 import { createUserDocument } from "../../../../lib/firestore";
+
+type ImageAttachment = { data: string; mimeType: string; name: string };
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+
+function readImage(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) { reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")); return; }
+    if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB.")); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      if (commaIndex < 0) { reject(new Error("Không thể đọc ảnh.")); return; }
+      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });
+    };
+    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));
+    reader.readAsDataURL(file);
+  });
+}
 
 type Result = {
   score: number; verdict: string; feedback: string; strengths: string[];
@@ -17,13 +36,15 @@ export default function AnswerGraderPage() {
   const [expectedAnswer, setExpectedAnswer] = useState("");
   const [rubric, setRubric] = useState("");
   const [studentAnswer, setStudentAnswer] = useState("");
+  const [questionImage, setQuestionImage] = useState<ImageAttachment | null>(null);
+  const [answerImage, setAnswerImage] = useState<ImageAttachment | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function gradeAnswer() {
-    if (!question.trim() || !studentAnswer.trim()) {
-      setError("Vui lòng nhập câu hỏi và câu trả lời.");
+    if ((!question.trim() && !questionImage) || (!studentAnswer.trim() && !answerImage)) {
+      setError("Vui lòng nhập câu hỏi/câu trả lời hoặc thêm ảnh tương ứng.");
       return;
     }
     setLoading(true); setError(""); setResult(null);
@@ -31,7 +52,7 @@ export default function AnswerGraderPage() {
       const response = await fetch("/api/ai/answer-grader", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer }),
+        body: JSON.stringify({ subject, question, expectedAnswer, rubric, studentAnswer, questionImage: questionImage ? { data: questionImage.data, mimeType: questionImage.mimeType } : undefined, answerImage: answerImage ? { data: answerImage.data, mimeType: answerImage.mimeType } : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể chấm bài.");
@@ -70,18 +91,28 @@ export default function AnswerGraderPage() {
               <label className="block text-sm font-medium">Môn học
                 <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Ví dụ: Ngữ văn, Toán..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
-              <label className="block text-sm font-medium">Câu hỏi *
-                <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-              </label>
+              <div className="block text-sm font-medium">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Câu hỏi *</span>
+                  <ImageUploadButton image={questionImage} setImage={setQuestionImage} loading={loading} setError={setError} label="Thêm ảnh câu hỏi" />
+                </div>
+                <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài hoặc thêm ảnh chứa câu hỏi..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
+                {questionImage && <ImagePreview image={questionImage} setImage={setQuestionImage} loading={loading} />}
+              </div>
               <label className="block text-sm font-medium">Đáp án tham khảo
                 <textarea value={expectedAnswer} onChange={e=>setExpectedAnswer(e.target.value)} rows={4} placeholder="Có thể để trống để AI tự đánh giá..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
               <label className="block text-sm font-medium">Tiêu chí chấm
                 <textarea value={rubric} onChange={e=>setRubric(e.target.value)} rows={3} placeholder="Ví dụ: đúng ý 4đ, lập luận 3đ, trình bày 3đ..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
               </label>
-              <label className="block text-sm font-medium">Câu trả lời *
-                <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời của bạn..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-              </label>
+              <div className="block text-sm font-medium">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Câu trả lời *</span>
+                  <ImageUploadButton image={answerImage} setImage={setAnswerImage} loading={loading} setError={setError} label="Thêm ảnh câu trả lời" />
+                </div>
+                <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời hoặc thêm ảnh chứa câu trả lời..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
+                {answerImage && <ImagePreview image={answerImage} setImage={setAnswerImage} loading={loading} />}
+              </div>
               <button onClick={gradeAnswer} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                 {loading ? <><Loader2 size={18} className="animate-spin"/> Đang chấm...</> : <><Sparkles size={18}/> Chấm bài</>}
               </button>
@@ -119,6 +150,41 @@ export default function AnswerGraderPage() {
       </div>
     </main>
   );
+}
+
+function ImageUploadButton({ image, setImage, loading, setError, label }: {
+  image: ImageAttachment | null;
+  setImage: (image: ImageAttachment | null) => void;
+  loading: boolean;
+  setError: (error: string) => void;
+  label: string;
+}) {
+  return <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-600 transition hover:border-indigo-400 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+    <ImagePlus size={15} /> {image ? "Đổi ảnh" : "Thêm ảnh"}
+    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading} aria-label={label} onChange={async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      try {
+        setError("");
+        setImage(await readImage(file));
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
+      }
+    }} />
+  </label>;
+}
+
+function ImagePreview({ image, setImage, loading }: {
+  image: ImageAttachment;
+  setImage: (image: ImageAttachment | null) => void;
+  loading: boolean;
+}) {
+  return <div className="mt-2 flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+    <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} className="h-14 w-14 rounded-md object-cover" />
+    <p className="min-w-0 flex-1 truncate text-xs text-gray-700 dark:text-gray-200">{image.name}</p>
+    <button type="button" onClick={() => setImage(null)} disabled={loading} aria-label="Xóa ảnh" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={15} /></button>
+  </div>;
 }
 
 function ResultList({ title, items }: { title: string; items: string[] }) {

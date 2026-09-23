@@ -115,6 +115,8 @@ export type AIMessage = {
   id: string;
   role: "user" | "model";
   text: string;
+  imageUrl?: string;
+  imageMimeType?: string;
   createdAt?: unknown;
 };
 

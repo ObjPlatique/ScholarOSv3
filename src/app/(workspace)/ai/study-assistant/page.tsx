@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Bot, BookOpen, Calculator, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, BookOpen, Calculator, ImagePlus, Lightbulb, MessageSquare, Plus, Send, Sparkles, Trash2, User, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import MarkdownRenderer from "../../../../components/markdown-renderer";
 import { auth } from "../../../../lib/firebase";
@@ -14,7 +14,13 @@ import {
   updateUserDocument,
 } from "../../../../lib/firestore";
 
-type Message = { role: "user" | "model"; text: string };
+type Message = { role: "user" | "model"; text: string; image?: { data?: string; url?: string; mimeType: string } };
+type ImageAttachment = { data: string; mimeType: string; name: string };
+
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+const IMAGE_DB_NAME = "scholaros-image-drafts";
+const IMAGE_STORE_NAME = "drafts";
+const IMAGE_DRAFT_KEY = "study-assistant-pending-image";
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
@@ -25,18 +31,146 @@ function formatAiText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function readImage(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      reject(new Error("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP."));
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      reject(new Error("Ảnh quá lớn. Hãy chọn ảnh nhỏ hơn 6 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      if (commaIndex < 0) {
+        reject(new Error("Không thể đọc ảnh."));
+        return;
+      }
+      resolve({ data: result.slice(commaIndex + 1), mimeType: file.type, name: file.name });
+    };
+    reader.onerror = () => reject(new Error("Không thể đọc ảnh."));
+    reader.readAsDataURL(file);
+  });
+}
+
+
+function openImageDraftDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(IMAGE_DB_NAME, 2);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(IMAGE_STORE_NAME)) {
+        db.createObjectStore(IMAGE_STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains("sent-images")) {
+        db.createObjectStore("sent-images");
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveImageDraft(image: ImageAttachment | null) {
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(IMAGE_STORE_NAME, "readwrite");
+    tx.objectStore(IMAGE_STORE_NAME).put(image, IMAGE_DRAFT_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function loadImageDraft(): Promise<ImageAttachment | null> {
+  const db = await openImageDraftDb();
+  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+    const tx = db.transaction(IMAGE_STORE_NAME, "readonly");
+    const request = tx.objectStore(IMAGE_STORE_NAME).get(IMAGE_DRAFT_KEY);
+    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return value;
+}
+
+// Spark-safe image persistence:
+// Firebase Storage is intentionally NOT used. Sent images are kept in IndexedDB
+// on the same browser/device, while Firestore stores only a small mime-type marker.
+async function saveSentImage(messageId: string, image: ImageAttachment) {
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readwrite");
+    tx.objectStore("sent-images").put(image, messageId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function loadSentImage(messageId: string): Promise<ImageAttachment | null> {
+  const db = await openImageDraftDb();
+  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readonly");
+    const request = tx.objectStore("sent-images").get(messageId);
+    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return value;
+}
+
+async function deleteSentImages(messageIds: string[]) {
+  if (messageIds.length === 0) return;
+  const db = await openImageDraftDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("sent-images", "readwrite");
+    const store = tx.objectStore("sent-images");
+    messageIds.forEach((id) => store.delete(id));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function hydrateMessages(
+  stored: Array<{ id: string; role: "user" | "model"; text: string; imageMimeType?: string }>,
+): Promise<Message[]> {
+  return Promise.all(
+    stored.map(async (item) => {
+      if (!item.imageMimeType) {
+        return { role: item.role, text: item.text };
+      }
+      const localImage = await loadSentImage(item.id).catch(() => null);
+      return {
+        role: item.role,
+        text: item.text,
+        image: localImage
+          ? { data: localImage.data, mimeType: localImage.mimeType }
+          : { mimeType: item.imageMimeType },
+      };
+    }),
+  );
+}
+
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [image, setImage] = useState<ImageAttachment | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt?: unknown; updatedAt?: unknown }>>([]);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const hasMessages = messages.length > 0;
-  const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
+  const canSend = useMemo(() => (input.trim().length > 0 || !!image) && !loading, [input, image, loading]);
 
   useEffect(() => {
+    void loadImageDraft().then(setImage).catch(() => undefined);
     return onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setLoadingHistory(false);
@@ -56,7 +190,7 @@ export default function StudyAssistantPage() {
         if (latest) {
           const stored = await listAIMessages(user.uid, latest.id);
           setConversationId(latest.id);
-          setMessages(stored.map((item) => ({ role: item.role, text: item.text })));
+          setMessages(await hydrateMessages(stored));
         }
       } catch {
         setError("Không thể tải lịch sử hội thoại.");
@@ -68,13 +202,14 @@ export default function StudyAssistantPage() {
 
   async function openConversation(id: string) {
     const user = auth.currentUser;
-    if (!user || loading || id === conversationId) return;
+    if (!user || id === conversationId) return;
+    requestControllerRef.current?.abort();
     setLoading(true);
     setError("");
     try {
       const stored = await listAIMessages(user.uid, id);
       setConversationId(id);
-      setMessages(stored.map((item) => ({ role: item.role, text: item.text })));
+      setMessages(await hydrateMessages(stored));
       setInput("");
     } catch {
       setError("Không thể mở cuộc trò chuyện.");
@@ -84,7 +219,7 @@ export default function StudyAssistantPage() {
   }
 
   function startNewConversation() {
-    if (loading) return;
+    requestControllerRef.current?.abort();
     setConversationId("");
     setMessages([]);
     setInput("");
@@ -94,20 +229,88 @@ export default function StudyAssistantPage() {
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
     const message = input.trim();
-    if (!message || loading) return;
+    if ((!message && !image) || loading) return;
 
+    const attachment = image;
     const previousMessages = messages;
+    const displayMessage = message || "Hãy phân tích ảnh này và giúp mình.";
+    const user = auth.currentUser;
+    if (!user) {
+      setError("Vui lòng đăng nhập để lưu hội thoại.");
+      return;
+    }
+
     setInput("");
+    setImage(null);
+    void saveImageDraft(null).catch(() => undefined);
     setError("");
-    setMessages((current) => [...current, { role: "user", text: message }]);
     setLoading(true);
 
     try {
-      const response = await fetch("/api/ai/study-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history: previousMessages }),
+      // Save the conversation and user message BEFORE calling Gemini.
+      // Therefore a stalled/failed AI request cannot prevent saving the chat.
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        const created = await createAIConversation(user.uid, {
+          type: "study-assistant",
+          title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
+        });
+        activeConversationId = created.id;
+        setConversationId(activeConversationId);
+        setConversations((current) => [
+          { id: activeConversationId!, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" },
+          ...current.filter((item) => item.id !== activeConversationId),
+        ]);
+      }
+
+      // Start the AI request as soon as the conversation ID is known.
+      // Firestore persistence and IndexedDB image persistence run alongside it,
+      // so database writes no longer add a full round-trip before Gemini starts.
+      const userMessagePromise = addAIMessage(user.uid, activeConversationId, {
+        role: "user",
+        text: displayMessage,
+        ...(attachment ? { imageMimeType: attachment.mimeType } : {}),
       });
+
+      if (attachment) {
+        // Persist the image locally without delaying the Gemini request.
+        void userMessagePromise
+          .then((savedUserMessage) => saveSentImage(savedUserMessage.id, attachment))
+          .catch(() => undefined);
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "user",
+          text: displayMessage,
+          ...(attachment ? { image: attachment } : {}),
+        },
+      ]);
+
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+
+      let response: Response;
+      try {
+        response = await fetch("/api/ai/study-assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            message,
+            // Do not resend old image base64 data. Gemini only needs the text history;
+            // the current image is sent separately below.
+            history: previousMessages.map(({ role, text }) => ({ role, text })),
+            image: attachment
+              ? { data: attachment.data, mimeType: attachment.mimeType }
+              : undefined,
+          }),
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
 
       if (!response.ok || !response.body) {
         let errorMessage = "Study Assistant gặp lỗi.";
@@ -130,11 +333,8 @@ export default function StudyAssistantPage() {
         buffer = events.pop() || "";
 
         for (const event of events) {
-          const dataLine = event
-            .split(/\r?\n/)
-            .find((line) => line.startsWith("data:"));
+          const dataLine = event.split(/\r?\n/).find((line) => line.startsWith("data:"));
           if (!dataLine) continue;
-
           const raw = dataLine.slice(5).trim();
           if (!raw || raw === "[DONE]") continue;
 
@@ -144,12 +344,10 @@ export default function StudyAssistantPage() {
               error?: { message?: string };
               delta?: { type?: string; text?: string };
             };
-
             if (payload.event_type === "error") {
               streamError = payload.error?.message || "Study Assistant gặp lỗi.";
               continue;
             }
-
             if (payload.event_type === "step.delta" && payload.delta?.type === "text") {
               assistantText += payload.delta.text || "";
               setMessages((current) => [
@@ -158,7 +356,7 @@ export default function StudyAssistantPage() {
               ]);
             }
           } catch {
-            // Ignore incomplete SSE frames; the next chunk completes them.
+            // Ignore incomplete SSE frames.
           }
         }
       };
@@ -174,43 +372,33 @@ export default function StudyAssistantPage() {
       assistantText = formatAiText(assistantText);
       if (!assistantText) throw new Error("AI không trả về nội dung.");
 
-      const user = auth.currentUser;
-      if (user) {
-        let activeConversationId = conversationId;
-        if (!activeConversationId) {
-          const created = await createAIConversation(user.uid, {
-            type: "study-assistant",
-            title: message.slice(0, 80) || "Cuộc trò chuyện mới",
-          });
-          activeConversationId = created.id;
-          setConversationId(activeConversationId);
-          setConversations((current) => [
-            { id: activeConversationId, title: message.slice(0, 80) || "Cuộc trò chuyện mới" },
-            ...current.filter((item) => item.id !== activeConversationId),
-          ]);
-        }
+      // Ensure the user message is persisted before the assistant message is saved.
+      await userMessagePromise.catch(() => undefined);
 
-        await addAIMessage(user.uid, activeConversationId, { role: "user", text: message });
-        await addAIMessage(user.uid, activeConversationId, { role: "model", text: assistantText });
-        await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
-          title: message.slice(0, 80) || "Cuộc trò chuyện mới",
-        });
-        setConversations((current) =>
-          current.map((item) =>
-            item.id === activeConversationId
-              ? { ...item, title: message.slice(0, 80) || "Cuộc trò chuyện mới" }
-              : item,
-          ),
-        );
-      }
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Không thể nhận phản hồi từ Study Assistant.",
+      await addAIMessage(user.uid, activeConversationId, {
+        role: "model",
+        text: assistantText,
+      });
+      await updateUserDocument(user.uid, "aiConversations", activeConversationId, {
+        title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới",
+      });
+      setConversations((current) =>
+        current.map((item) =>
+          item.id === activeConversationId
+            ? { ...item, title: displayMessage.slice(0, 80) || "Cuộc trò chuyện mới" }
+            : item,
+        ),
       );
-      setMessages(previousMessages);
+    } catch (requestError) {
+      const aborted = requestError instanceof DOMException && requestError.name === "AbortError";
+      if (aborted) {
+        setError("Yêu cầu AI đã được dừng. Tin nhắn của bạn vẫn được lưu.");
+      } else {
+        setError(requestError instanceof Error ? requestError.message : "Không thể nhận phản hồi từ Study Assistant.");
+      }
+      // Never roll back the user message: it was already persisted.
     } finally {
+      requestControllerRef.current = null;
       setLoading(false);
     }
   }
@@ -223,7 +411,9 @@ export default function StudyAssistantPage() {
     setLoading(true);
     setError("");
     try {
+      const stored = await listAIMessages(user.uid, conversationId);
       await deleteAIConversation(user.uid, conversationId);
+      await deleteSentImages(stored.map((item) => item.id)).catch(() => undefined);
       setConversationId("");
       setMessages([]);
       setConversations((current) => current.filter((item) => item.id !== conversationId));
@@ -297,7 +487,7 @@ export default function StudyAssistantPage() {
               <div className="mx-auto max-w-3xl space-y-5">
                 {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : message.text}</div>
+                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && (message.image.data || message.image.url ? <img src={message.image.url || `data:${message.image.mimeType};base64,${message.image.data || ""}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" /> : <div className="mb-3 rounded-xl border border-white/30 px-3 py-2 text-xs opacity-80">Ảnh đã gửi trước đó · chỉ lưu trên thiết bị này</div>)}<span>{message.text}</span></>}</div>
                   {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                 </div>)}
                 {loading && <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div><div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500 dark:bg-[#333333] dark:text-gray-300">Đang suy nghĩ…</div></div>}
@@ -307,11 +497,39 @@ export default function StudyAssistantPage() {
 
           <div className="border-t border-gray-200 p-3 dark:border-gray-600 sm:p-4">
             {error && <div className="mx-auto mb-3 max-w-3xl rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
-            <form onSubmit={sendMessage} className="mx-auto flex max-w-3xl items-end gap-2">
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập câu hỏi của bạn…" rows={1} className="max-h-36 min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" disabled={loading || loadingHistory} />
-              <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
+            <form onSubmit={sendMessage} className="mx-auto max-w-3xl">
+              {image && (
+                <div className="mb-3 flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                  <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh chuẩn bị gửi" className="h-16 w-16 rounded-lg object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{image.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích và lưu cục bộ trên thiết bị này.</p>
+                  </div>
+                  <button type="button" onClick={() => { setImage(null); void saveImageDraft(null).catch(() => undefined); }} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <label className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-gray-300 bg-white text-indigo-600 transition hover:border-indigo-400 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-indigo-300 dark:hover:bg-indigo-500/10" title="Thêm ảnh">
+                  <ImagePlus size={20} />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading || loadingHistory} onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    try {
+                      setError("");
+                      const nextImage = await readImage(file);
+                      setImage(nextImage);
+                      void saveImageDraft(nextImage).catch(() => undefined);
+                    } catch (error) {
+                      setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
+                    }
+                  }} />
+                </label>
+                <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập câu hỏi hoặc thêm ảnh…" rows={1} className="max-h-36 min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-600 dark:bg-[#333333] dark:text-white dark:placeholder:text-gray-400" disabled={loading || loadingHistory} />
+                <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
+              </div>
             </form>
-            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><MessageSquare size={12} /> Enter để gửi · Shift + Enter để xuống dòng</p>
+            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB · ảnh đã gửi lưu cục bộ trên thiết bị này</p>
           </div>
         </section>
         </div>
