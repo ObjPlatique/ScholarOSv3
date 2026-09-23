@@ -100,7 +100,7 @@ export default function AnswerGraderPage() {
                   <ImageUploadButton images={questionImages} otherImageCount={answerImages.length} setImages={setQuestionImages} loading={loading} setError={setError} label="Thêm ảnh câu hỏi" />
                 </div>
                 <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={4} placeholder="Nhập đề bài hoặc thêm ảnh chứa câu hỏi..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-                {questionImages.length > 0 && <ImagePreview images={questionImages} setImages={setQuestionImages} loading={loading} />}
+                {questionImages.length > 0 && <ImagePreview images={questionImages} otherImageCount={answerImages.length} setImages={setQuestionImages} loading={loading} />}
               </div>
               <label className="block text-sm font-medium">Đáp án tham khảo
                 <textarea value={expectedAnswer} onChange={e=>setExpectedAnswer(e.target.value)} rows={4} placeholder="Có thể để trống để AI tự đánh giá..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
@@ -114,7 +114,7 @@ export default function AnswerGraderPage() {
                   <ImageUploadButton images={answerImages} otherImageCount={questionImages.length} setImages={setAnswerImages} loading={loading} setError={setError} label="Thêm ảnh câu trả lời" />
                 </div>
                 <textarea value={studentAnswer} onChange={e=>setStudentAnswer(e.target.value)} rows={7} placeholder="Dán câu trả lời hoặc thêm ảnh chứa câu trả lời..." className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900 outline-none focus:border-indigo-500 dark:border-gray-600 dark:bg-[#333333] dark:text-white"/>
-                {answerImages.length > 0 && <ImagePreview images={answerImages} setImages={setAnswerImages} loading={loading} />}
+                {answerImages.length > 0 && <ImagePreview images={answerImages} otherImageCount={questionImages.length} setImages={setAnswerImages} loading={loading} />}
               </div>
               <button onClick={gradeAnswer} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                 {loading ? <><Loader2 size={18} className="animate-spin"/> Đang chấm...</> : <><Sparkles size={18}/> Chấm bài</>}
@@ -229,8 +229,9 @@ function ImageUploadButton({ images, otherImageCount, setImages, loading, setErr
   </label>;
 }
 
-function ImagePreview({ images, setImages, loading }: {
+function ImagePreview({ images, otherImageCount, setImages, loading }: {
   images: ImageAttachment[];
+  otherImageCount: number;
   setImages: (images: ImageAttachment[]) => void;
   loading: boolean;
 }) {
