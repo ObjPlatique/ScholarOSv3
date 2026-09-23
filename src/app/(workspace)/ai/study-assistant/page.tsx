@@ -21,8 +21,8 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const IMAGE_DB_NAME = "scholaros-image-drafts";
 const IMAGE_STORE_NAME = "drafts";
 const IMAGE_DRAFT_KEY = "study-assistant-pending-images";
-const MAX_IMAGES = 8;
-const MAX_IMAGE_PAYLOAD_CHARS = 3_600_000;
+const MAX_IMAGES = 3;
+const MAX_IMAGE_PAYLOAD_CHARS = 2_000_000;
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
@@ -65,14 +65,14 @@ function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<
     const source = new Image();
     source.onload = () => {
       const canvas = document.createElement("canvas");
-      const maxDimension = 2400;
+      const maxDimension = 1600;
       const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
       canvas.width = Math.max(640, Math.round(source.naturalWidth * scale));
       canvas.height = Math.max(640, Math.round(source.naturalHeight * scale));
       const context = canvas.getContext("2d");
       if (!context) { reject(new Error("Không thể xử lý ảnh trên trình duyệt.")); return; }
       context.drawImage(source, 0, 0, canvas.width, canvas.height);
-      let quality = 0.82;
+      let quality = 0.72;
       let output = "";
       for (let attempt = 0; attempt < 7; attempt += 1) {
         output = canvas.toDataURL("image/webp", quality);
@@ -83,7 +83,7 @@ function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<
           return;
         }
         quality = Math.max(0.35, quality - 0.1);
-        if (attempt === 2) {
+        if (attempt === 1) {
           const resizeScale = Math.sqrt(maxBase64Chars / Math.max(data.length, 1));
           canvas.width = Math.max(640, Math.round(canvas.width * resizeScale));
           canvas.height = Math.max(640, Math.round(canvas.height * resizeScale));
@@ -595,7 +595,7 @@ export default function StudyAssistantPage() {
                 <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
               </div>
             </form>
-            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB/ảnh · tự tối ưu tổng dung lượng · tối đa 8 ảnh</p>
+            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB/ảnh · tự tối ưu tổng dung lượng · tối đa 3 ảnh</p>
           </div>
         </section>
         </div>
