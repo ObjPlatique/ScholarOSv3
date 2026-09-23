@@ -23,6 +23,7 @@ type ResponseData = {
 type ImageInput = { data: string; mimeType: string };
 const MAX_IMAGES_PER_GROUP = 3;
 const MAX_TOTAL_IMAGES = 3;
+const MAX_TOTAL_IMAGE_BASE64_LENGTH = 2_000_000;
 
 function extractText(data: ResponseData) {
   return data.steps?.filter((step) => step.type === "model_output")
@@ -100,6 +101,11 @@ export async function POST(request: Request) {
     }
     if (questionImages.length > MAX_IMAGES_PER_GROUP || answerImages.length > MAX_IMAGES_PER_GROUP || questionImages.length + answerImages.length > MAX_TOTAL_IMAGES) {
       return NextResponse.json({ error: `Mỗi lần chấm chỉ được gửi tối đa ${MAX_TOTAL_IMAGES} ảnh.` }, { status: 400 });
+    }
+
+    const totalImageBase64Length = [...questionImages, ...answerImages].reduce((sum, image) => sum + image.data.length, 0);
+    if (totalImageBase64Length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
+      return NextResponse.json({ error: "Tổng dung lượng ảnh sau khi tối ưu vẫn quá lớn. Hãy dùng ảnh rõ nhưng có kích thước nhỏ hơn." }, { status: 413 });
     }
     const questionImageCount = Array.isArray(body.questionImages) ? body.questionImages.length : body.questionImage ? 1 : 0;
     const answerImageCount = Array.isArray(body.answerImages) ? body.answerImages.length : body.answerImage ? 1 : 0;
