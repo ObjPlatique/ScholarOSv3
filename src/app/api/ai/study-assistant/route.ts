@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-2.5-flash-lite";
-const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "gemini-3.5-flash-lite";
+const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-3.5-flash-lite";
+const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
 
@@ -115,6 +115,7 @@ export async function POST(request: Request) {
     if (
       !response.ok &&
       [429, 500, 502, 503, 504].includes(response.status) &&
+      FALLBACK_MODEL &&
       FALLBACK_MODEL !== PRIMARY_MODEL
     ) {
       fallbackUsed = true;
@@ -129,8 +130,7 @@ export async function POST(request: Request) {
       } catch {}
 
       if (fallbackUsed) {
-        errorMessage =
-          "Các máy Gemini đang quá tải. Vui lòng thử lại sau ít phút.";
+        errorMessage = "Model Gemini đang quá tải. Vui lòng thử lại sau ít phút.";
       }
 
       return NextResponse.json(
