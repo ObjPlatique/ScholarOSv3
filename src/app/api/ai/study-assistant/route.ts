@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
 
-const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-3.5-flash-lite";
-const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "gemini-2.5-flash-lite";
+const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-2.5-flash-lite";
+const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "gemini-3.5-flash-lite";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
 
 const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS.
-- Trả lời bằng tiếng Việt nếu người dùng dùng tiếng Việt.
-- Bạn có thể phân tích hình ảnh người dùng gửi, đặc biệt là đề bài, bài làm, biểu đồ, bảng biểu, ghi chép và tài liệu học tập.
-- Khi có ảnh, hãy đọc các thông tin nhìn thấy trong ảnh và kết hợp với câu hỏi của người dùng.
-- Nếu ảnh mờ, thiếu góc, hoặc không đọc được nội dung, nói rõ phần nào không chắc chắn thay vì đoán.
-- Giải thích bản chất, các bước và ví dụ khi cần.
-- Không bịa dữ kiện; nếu thiếu thông tin, nói rõ.
-- Dùng Markdown ngắn gọn, dễ đọc.
-- Không tự nhận mình là con người.`;
+Trả lời bằng tiếng Việt nếu người dùng dùng tiếng Việt.
+Giải thích đúng bản chất, từng bước khi cần; không bịa dữ kiện.
+Có thể phân tích ảnh đề bài, bài làm, biểu đồ, bảng và ghi chép.
+Nếu ảnh không rõ hoặc thiếu thông tin, nói rõ thay vì đoán.
+Ưu tiên câu trả lời ngắn gọn, trực tiếp, dễ đọc bằng Markdown.`;
 
 type HistoryItem = { role: "user" | "model"; text: string };
 type ImageInput = { data: string; mimeType: string };
@@ -29,7 +26,7 @@ function validHistory(value: unknown): HistoryItem[] {
               (item as { role?: unknown }).role === "model") &&
             typeof (item as { text?: unknown }).text === "string",
         )
-        .slice(-6)
+        .slice(-4)
     : [];
 }
 
@@ -51,7 +48,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Build Headers after the runtime check so TypeScript knows the API key is a string.
   const geminiHeaders = new Headers();
   geminiHeaders.set("Content-Type", "application/json");
   geminiHeaders.set("x-goog-api-key", apiKey);
@@ -105,9 +101,7 @@ export async function POST(request: Request) {
           system_instruction: SYSTEM_INSTRUCTION,
           stream: true,
           generation_config: {
-            // Study Assistant is a conversational tool: keep answers concise
-            // so the first useful tokens arrive sooner.
-            max_output_tokens: 1800,
+            max_output_tokens: 1200,
             thinking_level: "minimal",
           },
         }),
@@ -117,28 +111,30 @@ export async function POST(request: Request) {
 
     let response = await callModel(PRIMARY_MODEL);
 
-    // Gemini can temporarily return 429/5xx when a model is under heavy demand.
-    // Retry once with a second stable low-latency model instead of making the
-    // user wait for the client timeout.
     let fallbackUsed = false;
-    if (!response.ok && [429, 500, 502, 503, 504].includes(response.status) && FALLBACK_MODEL !== PRIMARY_MODEL) {
+    if (
+      !response.ok &&
+      [429, 500, 502, 503, 504].includes(response.status) &&
+      FALLBACK_MODEL !== PRIMARY_MODEL
+    ) {
       fallbackUsed = true;
       response = await callModel(FALLBACK_MODEL);
     }
 
     if (!response.ok || !response.body) {
-      let message = "Gemini không thể xử lý yêu cầu.";
+      let errorMessage = "Gemini không thể xử lý yêu cầu.";
       try {
         const data = (await response.json()) as { error?: { message?: string } };
-        message = data.error?.message || message;
+        errorMessage = data.error?.message || errorMessage;
       } catch {}
 
       if (fallbackUsed) {
-        message = "Cả Study Assistant chính và máy dự phòng của Gemini đều đang quá tải. Vui lòng thử lại sau ít phút.";
+        errorMessage =
+          "Các máy Gemini đang quá tải. Vui lòng thử lại sau ít phút.";
       }
 
       return NextResponse.json(
-        { error: message },
+        { error: errorMessage },
         { status: response.status >= 500 ? 502 : response.status },
       );
     }
