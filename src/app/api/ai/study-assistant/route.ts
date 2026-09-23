@@ -15,6 +15,7 @@ Nếu ảnh không rõ hoặc thiếu thông tin, nói rõ thay vì đoán.
 type HistoryItem = { role: "user" | "model"; text: string };
 type ImageInput = { data: string; mimeType: string };
 const MAX_IMAGES = 3;
+const MAX_TOTAL_IMAGE_BASE64_LENGTH = 2_000_000;
 
 function validHistory(value: unknown): HistoryItem[] {
   return Array.isArray(value)
@@ -79,6 +80,11 @@ export async function POST(request: Request) {
 
     if (Array.isArray(body.images) && body.images.length > MAX_IMAGES) {
       return NextResponse.json({ error: `Bạn chỉ có thể gửi tối đa ${MAX_IMAGES} ảnh mỗi tin nhắn.` }, { status: 400 });
+    }
+
+    const totalImageBase64Length = images.reduce((sum, image) => sum + image.data.length, 0);
+    if (totalImageBase64Length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
+      return NextResponse.json({ error: "Tổng dung lượng ảnh sau khi tối ưu vẫn quá lớn. Hãy dùng ảnh rõ nhưng có kích thước nhỏ hơn." }, { status: 413 });
     }
 
     if (
