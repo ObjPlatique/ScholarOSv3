@@ -14,13 +14,15 @@ import {
   updateUserDocument,
 } from "../../../../lib/firestore";
 
-type Message = { role: "user" | "model"; text: string; image?: { data?: string; url?: string; mimeType: string } };
+type Message = { role: "user" | "model"; text: string; images?: Array<{ data?: string; url?: string; mimeType: string; name?: string }> };
 type ImageAttachment = { data: string; mimeType: string; name: string };
 
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const IMAGE_DB_NAME = "scholaros-image-drafts";
 const IMAGE_STORE_NAME = "drafts";
-const IMAGE_DRAFT_KEY = "study-assistant-pending-image";
+const IMAGE_DRAFT_KEY = "study-assistant-pending-images";
+const MAX_IMAGES = 3;
+const MAX_IMAGE_PAYLOAD_CHARS = 2_000_000;
 const quickPrompts = [
   { label: "Giải thích bài học", icon: BookOpen, text: "Giải thích cho mình một khái niệm khó theo cách dễ hiểu, kèm ví dụ." },
   { label: "Giải bài tập", icon: Calculator, text: "Giúp mình giải bài tập này từng bước và giải thích vì sao làm như vậy: " },
@@ -57,6 +59,50 @@ function readImage(file: File): Promise<ImageAttachment> {
 }
 
 
+function compressImage(image: ImageAttachment, maxBase64Chars: number): Promise<ImageAttachment> {
+  if (image.data.length <= maxBase64Chars) return Promise.resolve(image);
+  return new Promise((resolve, reject) => {
+    const source = new Image();
+    source.onload = () => {
+      const canvas = document.createElement("canvas");
+      const maxDimension = 1600;
+      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+      canvas.width = Math.max(640, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(640, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) { reject(new Error("Không thể xử lý ảnh trên trình duyệt.")); return; }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      let quality = 0.72;
+      let output = "";
+      for (let attempt = 0; attempt < 7; attempt += 1) {
+        output = canvas.toDataURL("image/webp", quality);
+        const commaIndex = output.indexOf(",");
+        const data = commaIndex >= 0 ? output.slice(commaIndex + 1) : "";
+        if (data.length <= maxBase64Chars) {
+          resolve({ data, mimeType: "image/webp", name: image.name });
+          return;
+        }
+        quality = Math.max(0.35, quality - 0.1);
+        if (attempt === 1) {
+          const resizeScale = Math.sqrt(maxBase64Chars / Math.max(data.length, 1));
+          canvas.width = Math.max(640, Math.round(canvas.width * resizeScale));
+          canvas.height = Math.max(640, Math.round(canvas.height * resizeScale));
+          context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        }
+      }
+      reject(new Error("Ảnh vẫn quá lớn sau khi tối ưu. Hãy chọn ảnh có kích thước nhỏ hơn."));
+    };
+    source.onerror = () => reject(new Error("Không thể xử lý ảnh."));
+    source.src = `data:${image.mimeType};base64,${image.data}`;
+  });
+}
+
+async function fitImagesToRequest(images: ImageAttachment[], maxTotalBase64Chars: number): Promise<ImageAttachment[]> {
+  if (images.length === 0) return [];
+  const perImageLimit = Math.floor(maxTotalBase64Chars / images.length);
+  return Promise.all(images.map((image) => compressImage(image, perImageLimit)));
+}
+
 function openImageDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(IMAGE_DB_NAME, 2);
@@ -74,23 +120,28 @@ function openImageDraftDb(): Promise<IDBDatabase> {
   });
 }
 
-async function saveImageDraft(image: ImageAttachment | null) {
+async function saveImageDraft(images: ImageAttachment[]) {
   const db = await openImageDraftDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IMAGE_STORE_NAME, "readwrite");
-    tx.objectStore(IMAGE_STORE_NAME).put(image, IMAGE_DRAFT_KEY);
+    tx.objectStore(IMAGE_STORE_NAME).put(images, IMAGE_DRAFT_KEY);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
   db.close();
 }
 
-async function loadImageDraft(): Promise<ImageAttachment | null> {
+async function loadImageDraft(): Promise<ImageAttachment[]> {
   const db = await openImageDraftDb();
-  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+  const value = await new Promise<ImageAttachment[]>((resolve, reject) => {
     const tx = db.transaction(IMAGE_STORE_NAME, "readonly");
     const request = tx.objectStore(IMAGE_STORE_NAME).get(IMAGE_DRAFT_KEY);
-    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onsuccess = () => {
+      const result = request.result;
+      if (Array.isArray(result)) resolve(result as ImageAttachment[]);
+      else if (result) resolve([result as ImageAttachment]);
+      else resolve([]);
+    };
     request.onerror = () => reject(request.error);
   });
   db.close();
@@ -100,23 +151,23 @@ async function loadImageDraft(): Promise<ImageAttachment | null> {
 // Spark-safe image persistence:
 // Firebase Storage is intentionally NOT used. Sent images are kept in IndexedDB
 // on the same browser/device, while Firestore stores only a small mime-type marker.
-async function saveSentImage(messageId: string, image: ImageAttachment) {
+async function saveSentImages(messageId: string, images: ImageAttachment[]) {
   const db = await openImageDraftDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("sent-images", "readwrite");
-    tx.objectStore("sent-images").put(image, messageId);
+    tx.objectStore("sent-images").put(images, messageId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
   db.close();
 }
 
-async function loadSentImage(messageId: string): Promise<ImageAttachment | null> {
+async function loadSentImages(messageId: string): Promise<ImageAttachment[]> {
   const db = await openImageDraftDb();
-  const value = await new Promise<ImageAttachment | null>((resolve, reject) => {
+  const value = await new Promise<ImageAttachment[]>((resolve, reject) => {
     const tx = db.transaction("sent-images", "readonly");
     const request = tx.objectStore("sent-images").get(messageId);
-    request.onsuccess = () => resolve((request.result as ImageAttachment | undefined) ?? null);
+    request.onsuccess = () => resolve((request.result as ImageAttachment[] | undefined) ?? []);
     request.onerror = () => reject(request.error);
   });
   db.close();
@@ -137,20 +188,27 @@ async function deleteSentImages(messageIds: string[]) {
 }
 
 async function hydrateMessages(
-  stored: Array<{ id: string; role: "user" | "model"; text: string; imageMimeType?: string }>,
+  stored: Array<{ id: string; role: "user" | "model"; text: string; imageMimeType?: string; imageMimeTypes?: string[] }>,
 ): Promise<Message[]> {
   return Promise.all(
     stored.map(async (item) => {
-      if (!item.imageMimeType) {
+      const mimeTypes = item.imageMimeTypes?.length
+        ? item.imageMimeTypes
+        : item.imageMimeType
+          ? [item.imageMimeType]
+          : [];
+      if (mimeTypes.length === 0) {
         return { role: item.role, text: item.text };
       }
-      const localImage = await loadSentImage(item.id).catch(() => null);
+      const localImages = await loadSentImages(item.id).catch(() => []);
       return {
         role: item.role,
         text: item.text,
-        image: localImage
-          ? { data: localImage.data, mimeType: localImage.mimeType }
-          : { mimeType: item.imageMimeType },
+        images: mimeTypes.map((mimeType, index) =>
+          localImages[index]
+            ? { data: localImages[index].data, mimeType: localImages[index].mimeType, name: localImages[index].name }
+            : { mimeType },
+        ),
       };
     }),
   );
@@ -159,7 +217,7 @@ async function hydrateMessages(
 export default function StudyAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [image, setImage] = useState<ImageAttachment | null>(null);
+  const [images, setImages] = useState<ImageAttachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState("");
@@ -167,10 +225,10 @@ export default function StudyAssistantPage() {
   const [conversations, setConversations] = useState<Array<{ id: string; title: string; createdAt?: unknown; updatedAt?: unknown }>>([]);
   const requestControllerRef = useRef<AbortController | null>(null);
   const hasMessages = messages.length > 0;
-  const canSend = useMemo(() => (input.trim().length > 0 || !!image) && !loading, [input, image, loading]);
+  const canSend = useMemo(() => (input.trim().length > 0 || images.length > 0) && !loading, [input, images, loading]);
 
   useEffect(() => {
-    void loadImageDraft().then(setImage).catch(() => undefined);
+    void loadImageDraft().then(setImages).catch(() => undefined);
     return onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setLoadingHistory(false);
@@ -229,11 +287,11 @@ export default function StudyAssistantPage() {
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
     const message = input.trim();
-    if ((!message && !image) || loading) return;
+    if ((!message && images.length === 0) || loading) return;
 
-    const attachment = image;
+    const attachments = images;
     const previousMessages = messages;
-    const displayMessage = message || "Hãy phân tích ảnh này và giúp mình.";
+    const displayMessage = message || "Hãy phân tích các ảnh này và giúp mình.";
     const user = auth.currentUser;
     if (!user) {
       setError("Vui lòng đăng nhập để lưu hội thoại.");
@@ -241,8 +299,8 @@ export default function StudyAssistantPage() {
     }
 
     setInput("");
-    setImage(null);
-    void saveImageDraft(null).catch(() => undefined);
+    setImages([]);
+    void saveImageDraft([]).catch(() => undefined);
     setError("");
     setLoading(true);
 
@@ -269,13 +327,13 @@ export default function StudyAssistantPage() {
       const userMessagePromise = addAIMessage(user.uid, activeConversationId, {
         role: "user",
         text: displayMessage,
-        ...(attachment ? { imageMimeType: attachment.mimeType } : {}),
+        ...(attachments.length ? { imageMimeTypes: attachments.map((item) => item.mimeType) } : {}),
       });
 
-      if (attachment) {
-        // Persist the image locally without delaying the Gemini request.
+      if (attachments.length) {
+        // Persist all images locally without delaying the Gemini request.
         void userMessagePromise
-          .then((savedUserMessage) => saveSentImage(savedUserMessage.id, attachment))
+          .then((savedUserMessage) => saveSentImages(savedUserMessage.id, attachments))
           .catch(() => undefined);
       }
 
@@ -284,7 +342,7 @@ export default function StudyAssistantPage() {
         {
           role: "user",
           text: displayMessage,
-          ...(attachment ? { image: attachment } : {}),
+          ...(attachments.length ? { images: attachments } : {}),
         },
       ]);
 
@@ -303,8 +361,8 @@ export default function StudyAssistantPage() {
             // Do not resend old image base64 data. Gemini only needs the text history;
             // the current image is sent separately below.
             history: previousMessages.map(({ role, text }) => ({ role, text })),
-            image: attachment
-              ? { data: attachment.data, mimeType: attachment.mimeType }
+            images: attachments.length
+              ? attachments.map((item) => ({ data: item.data, mimeType: item.mimeType }))
               : undefined,
           }),
         });
@@ -487,7 +545,7 @@ export default function StudyAssistantPage() {
               <div className="mx-auto max-w-3xl space-y-5">
                 {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "model" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div>}
-                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.image && (message.image.data || message.image.url ? <img src={message.image.url || `data:${message.image.mimeType};base64,${message.image.data || ""}`} alt="Ảnh đính kèm" className="mb-3 max-h-72 max-w-full rounded-xl object-contain" /> : <div className="mb-3 rounded-xl border border-white/30 px-3 py-2 text-xs opacity-80">Ảnh đã gửi trước đó · chỉ lưu trên thiết bị này</div>)}<span>{message.text}</span></>}</div>
+                  <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm sm:max-w-[78%] ${message.role === "user" ? "whitespace-pre-wrap leading-7 bg-indigo-600 text-white" : "bg-gray-100 leading-7 text-gray-800 dark:bg-[#333333] dark:text-gray-100"}`}>{message.role === "model" ? <MarkdownRenderer text={message.text} /> : <>{message.images?.length ? <div className="mb-3 grid grid-cols-2 gap-2">{message.images.map((image, imageIndex) => image.data || image.url ? <img key={imageIndex} src={image.url || `data:${image.mimeType};base64,${image.data || ""}`} alt={image.name || `Ảnh đính kèm ${imageIndex + 1}`} className="max-h-72 w-full rounded-xl object-contain" /> : <div key={imageIndex} className="rounded-xl border border-white/30 px-3 py-2 text-xs opacity-80">Ảnh đã gửi trước đó · chỉ lưu trên thiết bị này</div>)}</div> : null}<span>{message.text}</span></>}</div>
                   {message.role === "user" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-100"><User size={18} /></div>}
                 </div>)}
                 {loading && <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><Bot size={18} /></div><div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-500 dark:bg-[#333333] dark:text-gray-300">Đang suy nghĩ…</div></div>}
@@ -498,28 +556,36 @@ export default function StudyAssistantPage() {
           <div className="border-t border-gray-200 p-3 dark:border-gray-600 sm:p-4">
             {error && <div className="mx-auto mb-3 max-w-3xl rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
             <form onSubmit={sendMessage} className="mx-auto max-w-3xl">
-              {image && (
-                <div className="mb-3 flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-                  <img src={`data:${image.mimeType};base64,${image.data}`} alt="Ảnh chuẩn bị gửi" className="h-16 w-16 rounded-lg object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{image.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-300">Ảnh sẽ được gửi cho AI để phân tích và lưu cục bộ trên thiết bị này.</p>
+              {images.length > 0 && (
+                <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {images.map((image, index) => (
+                      <div key={`${image.name}-${index}`} className="relative overflow-hidden rounded-lg border border-indigo-200 bg-white dark:border-indigo-500/30 dark:bg-[#333333]">
+                        <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} className="h-24 w-full object-cover" />
+                        <button type="button" onClick={() => { const next = images.filter((_, imageIndex) => imageIndex !== index); setImages(next); void saveImageDraft(next).catch(() => undefined); }} disabled={loading} aria-label={`Xóa ảnh ${index + 1}`} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"><X size={15} /></button>
+                      </div>
+                    ))}
                   </div>
-                  <button type="button" onClick={() => { setImage(null); void saveImageDraft(null).catch(() => undefined); }} disabled={loading} aria-label="Xóa ảnh" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white dark:hover:bg-[#333333]"><X size={17} /></button>
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-300">{images.length}/{MAX_IMAGES} ảnh · sẽ được gửi cùng một yêu cầu.</p>
                 </div>
               )}
               <div className="flex items-end gap-2">
                 <label className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-gray-300 bg-white text-indigo-600 transition hover:border-indigo-400 hover:bg-indigo-50 dark:border-gray-600 dark:bg-[#333333] dark:text-indigo-300 dark:hover:bg-indigo-500/10" title="Thêm ảnh">
                   <ImagePlus size={20} />
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading || loadingHistory} onChange={async (event) => {
-                    const file = event.target.files?.[0];
+                  <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" disabled={loading || loadingHistory} onChange={async (event) => {
+                    const files = Array.from(event.target.files || []);
                     event.target.value = "";
-                    if (!file) return;
+                    if (!files.length) return;
                     try {
                       setError("");
-                      const nextImage = await readImage(file);
-                      setImage(nextImage);
-                      void saveImageDraft(nextImage).catch(() => undefined);
+                      if (images.length + files.length > MAX_IMAGES) {
+                        throw new Error(`Bạn chỉ có thể thêm tối đa ${MAX_IMAGES} ảnh cho mỗi tin nhắn.`);
+                      }
+                      const nextImages = [...images];
+                      for (const file of files) nextImages.push(await readImage(file));
+                      const optimizedImages = await fitImagesToRequest(nextImages, MAX_IMAGE_PAYLOAD_CHARS);
+                      setImages(optimizedImages);
+                      void saveImageDraft(optimizedImages).catch(() => undefined);
                     } catch (error) {
                       setError(error instanceof Error ? error.message : "Không thể đọc ảnh.");
                     }
@@ -529,7 +595,7 @@ export default function StudyAssistantPage() {
                 <button type="submit" disabled={!canSend || loadingHistory} aria-label="Gửi câu hỏi" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={19} /></button>
               </div>
             </form>
-            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB · ảnh đã gửi lưu cục bộ trên thiết bị này</p>
+            <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1 text-xs text-gray-400"><ImagePlus size={12} /> JPG, PNG, WebP · tối đa 6 MB/ảnh · tự tối ưu tổng dung lượng · tối đa 3 ảnh</p>
           </div>
         </section>
         </div>

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const MODEL = process.env.GEMINI_GRADER_MODEL || "gemini-3.5-flash-lite";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 2_400_000;
 
 type GradingResult = {
   score: number;
@@ -21,6 +21,9 @@ type ResponseData = {
 };
 
 type ImageInput = { data: string; mimeType: string };
+const MAX_IMAGES_PER_GROUP = 3;
+const MAX_TOTAL_IMAGES = 3;
+const MAX_TOTAL_IMAGE_BASE64_LENGTH = 2_000_000;
 
 function extractText(data: ResponseData) {
   return data.steps?.filter((step) => step.type === "model_output")
@@ -70,6 +73,8 @@ export async function POST(request: Request) {
       rubric?: unknown;
       questionImage?: unknown;
       answerImage?: unknown;
+      questionImages?: unknown;
+      answerImages?: unknown;
     };
 
     const subject = typeof body.subject === "string" ? body.subject.trim() : "";
@@ -77,16 +82,34 @@ export async function POST(request: Request) {
     const expectedAnswer = typeof body.expectedAnswer === "string" ? body.expectedAnswer.trim() : "";
     const studentAnswer = typeof body.studentAnswer === "string" ? body.studentAnswer.trim() : "";
     const rubric = typeof body.rubric === "string" ? body.rubric.trim() : "";
-    const questionImage = validImage(body.questionImage);
-    const answerImage = validImage(body.answerImage);
+    const questionImages = Array.isArray(body.questionImages)
+      ? body.questionImages.map(validImage).filter((image): image is ImageInput => !!image)
+      : body.questionImage
+        ? [validImage(body.questionImage)].filter((image): image is ImageInput => !!image)
+        : [];
+    const answerImages = Array.isArray(body.answerImages)
+      ? body.answerImages.map(validImage).filter((image): image is ImageInput => !!image)
+      : body.answerImage
+        ? [validImage(body.answerImage)].filter((image): image is ImageInput => !!image)
+        : [];
 
-    if (!question && !questionImage) {
-      return NextResponse.json({ error: "Cần có câu hỏi bằng văn bản hoặc ảnh chứa câu hỏi." }, { status: 400 });
+    if (!question && questionImages.length === 0) {
+      return NextResponse.json({ error: "Cần có câu hỏi bằng văn bản hoặc ít nhất một ảnh chứa câu hỏi." }, { status: 400 });
     }
-    if (!studentAnswer && !answerImage) {
-      return NextResponse.json({ error: "Cần có câu trả lời bằng văn bản hoặc ảnh chứa câu trả lời." }, { status: 400 });
+    if (!studentAnswer && answerImages.length === 0) {
+      return NextResponse.json({ error: "Cần có câu trả lời bằng văn bản hoặc ít nhất một ảnh chứa câu trả lời." }, { status: 400 });
     }
-    if ((body.questionImage && !questionImage) || (body.answerImage && !answerImage)) {
+    if (questionImages.length > MAX_IMAGES_PER_GROUP || answerImages.length > MAX_IMAGES_PER_GROUP || questionImages.length + answerImages.length > MAX_TOTAL_IMAGES) {
+      return NextResponse.json({ error: `Mỗi lần chấm chỉ được gửi tối đa ${MAX_TOTAL_IMAGES} ảnh.` }, { status: 400 });
+    }
+
+    const totalImageBase64Length = [...questionImages, ...answerImages].reduce((sum, image) => sum + image.data.length, 0);
+    if (totalImageBase64Length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
+      return NextResponse.json({ error: "Tổng dung lượng ảnh sau khi tối ưu vẫn quá lớn. Hãy dùng ảnh rõ nhưng có kích thước nhỏ hơn." }, { status: 413 });
+    }
+    const questionImageCount = Array.isArray(body.questionImages) ? body.questionImages.length : body.questionImage ? 1 : 0;
+    const answerImageCount = Array.isArray(body.answerImages) ? body.answerImages.length : body.answerImage ? 1 : 0;
+    if (questionImages.length !== questionImageCount || answerImages.length !== answerImageCount) {
       return NextResponse.json(
         { error: "Ảnh không hợp lệ. Chỉ hỗ trợ JPG, PNG hoặc WebP và mỗi ảnh phải nhỏ hơn 6 MB." },
         { status: 400 },
@@ -108,7 +131,7 @@ ${rubric || "Đánh giá độ chính xác, lập luận, mức độ đầy đ�
 Câu trả lời của học sinh:
 ${studentAnswer || "Hãy đọc bài làm từ ảnh đính kèm."}
 
-Nếu có ảnh, ảnh đầu tiên (nếu có) chứa câu hỏi và ảnh thứ hai (nếu có) chứa câu trả lời của học sinh. Hãy đọc chính xác từng ảnh và kết hợp với phần văn bản tương ứng.
+Nếu có ảnh, các ảnh thuộc nhóm câu hỏi (nếu có) chứa đề bài, sau đó các ảnh thuộc nhóm câu trả lời (nếu có) chứa bài làm của học sinh. Hãy đọc chính xác từng ảnh và kết hợp với phần văn bản tương ứng.
 Nếu ảnh mờ hoặc không đủ thông tin, nêu rõ phần không chắc chắn và không tự bịa nội dung.
 
 Chấm trên thang 10. Không chỉ so khớp từ khóa; hãy xét ý nghĩa, lập luận và mức độ đúng.
@@ -116,13 +139,19 @@ Trả JSON đúng schema. feedback ngắn gọn nhưng cụ thể. strengths/mis
 referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh đối chiếu.`;
 
     const input: Array<Record<string, string>> = [];
-    if (questionImage) {
-      input.push({ type: "image", data: questionImage.data, mime_type: questionImage.mimeType });
-    }
-    if (answerImage) {
-      input.push({ type: "image", data: answerImage.data, mime_type: answerImage.mimeType });
-    }
+    questionImages.forEach((image) => {
+      input.push({ type: "image", data: image.data, mime_type: image.mimeType });
+    });
+    answerImages.forEach((image) => {
+      input.push({ type: "image", data: image.data, mime_type: image.mimeType });
+    });
     input.push({ type: "text", text: prompt });
+
+    // Interactions API accepts multiple image content blocks in one input array.
+    // Keep text last so the model sees the complete visual context before the instruction.
+    if (input.filter((item) => item.type === "image").length > 1) {
+      console.info("[AI] multi-image request", { imageCount: input.filter((item) => item.type === "image").length });
+    }
 
     const response = await fetch(API_URL, {
       method: "POST",
@@ -154,7 +183,13 @@ referenceAnswer là đáp án/cách giải mẫu ngắn gọn để học sinh �
     });
 
     const data = await response.json() as ResponseData;
-    if (!response.ok) return NextResponse.json({ error: data.error?.message || "Gemini không thể chấm bài." }, { status: 502 });
+    if (!response.ok) {
+      console.error("[AI] Gemini request failed", { status: response.status, error: data.error?.message });
+      return NextResponse.json(
+        { error: data.error?.message || `Gemini từ chối yêu cầu (HTTP ${response.status}).` },
+        { status: 502 },
+      );
+    }
     if (data.status === "incomplete") return NextResponse.json({ error: "AI chưa hoàn tất việc chấm bài. Vui lòng thử lại." }, { status: 502 });
 
     const text = extractText(data);

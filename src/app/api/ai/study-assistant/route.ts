@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const PRIMARY_MODEL = process.env.GEMINI_STUDY_MODEL || "gemini-3.5-flash-lite";
 const FALLBACK_MODEL = process.env.GEMINI_STUDY_FALLBACK_MODEL || "";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 2_400_000;
 
 const SYSTEM_INSTRUCTION = `Bạn là Study Assistant của ScholarOS.
 Trả lời bằng tiếng Việt nếu người dùng dùng tiếng Việt.
@@ -14,6 +14,8 @@ Nếu ảnh không rõ hoặc thiếu thông tin, nói rõ thay vì đoán.
 
 type HistoryItem = { role: "user" | "model"; text: string };
 type ImageInput = { data: string; mimeType: string };
+const MAX_IMAGES = 3;
+const MAX_TOTAL_IMAGE_BASE64_LENGTH = 2_000_000;
 
 function validHistory(value: unknown): HistoryItem[] {
   return Array.isArray(value)
@@ -30,13 +32,19 @@ function validHistory(value: unknown): HistoryItem[] {
     : [];
 }
 
-function validImage(value: unknown): ImageInput | null {
-  if (!value || typeof value !== "object") return null;
-  const image = value as { data?: unknown; mimeType?: unknown };
-  if (typeof image.data !== "string" || typeof image.mimeType !== "string") return null;
-  if (!/^image\/(jpeg|png|webp)$/i.test(image.mimeType)) return null;
-  if (image.data.length > MAX_IMAGE_BASE64_LENGTH) return null;
-  return { data: image.data, mimeType: image.mimeType };
+function validImages(value: unknown): ImageInput[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const image = item as { data?: unknown; mimeType?: unknown };
+      if (typeof image.data !== "string" || typeof image.mimeType !== "string") return null;
+      if (!/^image\/(jpeg|png|webp)$/i.test(image.mimeType)) return null;
+      if (image.data.length > MAX_IMAGE_BASE64_LENGTH) return null;
+      return { data: image.data, mimeType: image.mimeType };
+    })
+    .filter((image): image is ImageInput => !!image)
+    .slice(0, MAX_IMAGES);
 }
 
 export async function POST(request: Request) {
@@ -57,15 +65,32 @@ export async function POST(request: Request) {
       message?: unknown;
       history?: unknown;
       image?: unknown;
+      images?: unknown;
     };
     const message = typeof body.message === "string" ? body.message.trim() : "";
-    const image = validImage(body.image);
+    const images = Array.isArray(body.images)
+      ? validImages(body.images)
+      : body.image
+        ? validImages([body.image])
+        : [];
 
-    if (!message && !image) {
-      return NextResponse.json({ error: "Vui lòng nhập câu hỏi hoặc chọn một ảnh." }, { status: 400 });
+    if (!message && images.length === 0) {
+      return NextResponse.json({ error: "Vui lòng nhập câu hỏi hoặc chọn ít nhất một ảnh." }, { status: 400 });
     }
 
-    if (body.image && !image) {
+    if (Array.isArray(body.images) && body.images.length > MAX_IMAGES) {
+      return NextResponse.json({ error: `Bạn chỉ có thể gửi tối đa ${MAX_IMAGES} ảnh mỗi tin nhắn.` }, { status: 400 });
+    }
+
+    const totalImageBase64Length = images.reduce((sum, image) => sum + image.data.length, 0);
+    if (totalImageBase64Length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
+      return NextResponse.json({ error: "Tổng dung lượng ảnh sau khi tối ưu vẫn quá lớn. Hãy dùng ảnh rõ nhưng có kích thước nhỏ hơn." }, { status: 413 });
+    }
+
+    if (
+      (Array.isArray(body.images) && body.images.some((item) => !validImages([item]).length)) ||
+      (body.image && !validImages([body.image]).length)
+    ) {
       return NextResponse.json(
         { error: "Ảnh không hợp lệ. Hãy dùng JPG, PNG hoặc WebP và chọn ảnh nhỏ hơn giới hạn cho phép." },
         { status: 400 },
@@ -82,13 +107,13 @@ export async function POST(request: Request) {
       : message || "Hãy phân tích ảnh này và giúp mình.";
 
     const input: Array<Record<string, string>> = [];
-    if (image) {
+    images.forEach((image) => {
       input.push({
         type: "image",
         data: image.data,
         mime_type: image.mimeType,
       });
-    }
+    });
     input.push({ type: "text", text: textInput });
 
     async function callModel(model: string) {
